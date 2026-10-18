@@ -149,7 +149,7 @@
    const rows=[];
    for(const id of selected)rows.push(await repository.get(id));
    SFKFeedback.open(rows);
-   $('workspace-status').textContent='反馈模板草稿已生成，可修改后复制。';
+   $('workspace-status').textContent='课程已读取，请补充信息后生成反馈草稿。';
   }catch(e){$('workspace-status').textContent='反馈生成失败：'+e.message;}
   finally{busy=false;count();}
  };

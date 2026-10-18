@@ -98,9 +98,36 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
       await f.home(); assert.equal(await page.locator('#generate-feedback').isDisabled(), true);
       await page.locator('#record-search').fill('反馈学生'); await page.locator('#select-all').check();
       await page.locator('#generate-feedback').click(); await page.locator('#feedback-dialog').waitFor({ state: 'visible' });
+      assert.equal(await page.locator('#feedback-result').isVisible(), false);
+      assert.equal(await page.locator('#feedback-homework').inputValue(), '补充草图');
+      await page.locator('#feedback-teacher').fill('导师甲');
+      await page.locator('#feedback-progress').fill('35');
+      await page.locator('#feedback-pronoun').selectOption('她');
+      await page.locator('#feedback-project').fill('项目一 · 对视');
+      await page.locator('#feedback-observation').fill('能根据测试结果调整结构。');
+      await page.locator('#feedback-advice').fill('先梳理问题，再逐项测试。');
+      for (const width of [320, 375, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        assert.ok(await page.locator('#feedback-dialog').evaluate(e => e.scrollWidth <= e.clientWidth));
+      }
+      await page.locator('#feedback-settings button[type=submit]').click();
       const value = await page.locator('#feedback-text').inputValue();
-      assert.ok(value.includes('制作模型') && value.includes('补充草图') && value.includes('课后作业：未填写'));
+      assert.ok(value.includes('制作模型') && value.includes('补充草图') && value.includes('🔸最新进度百分比：35%'));
       assert.ok(value.indexOf('色彩练习') < value.indexOf('制作模型'));
+      assert.ok(!value.includes('2026-10-') && !value.includes('10:00') && !value.includes('您好'));
+      assert.ok(value.includes('导师甲') && value.includes('项目一 · 对视') && value.includes('建议她'));
+      assert.ok(value.includes('能根据测试结果调整结构。'));
+      await page.locator('#feedback-back').click();
+      assert.equal(await page.locator('#feedback-progress').inputValue(), '35');
+      await page.locator('#feedback-progress').fill('0');
+      await page.locator('#feedback-settings button[type=submit]').click();
+      assert.ok((await page.locator('#feedback-text').inputValue()).includes('0%'));
+      const blankLatest = await page.evaluate(() => {
+        const input = SFKFeedback.prepare([{id:'old',record:{studentName:'学生',lessonDate:'2026-10-17',homework:'旧作业'}},{id:'new',record:{studentName:'学生',lessonDate:'2026-10-18',homework:''}}]);
+        return SFKFeedback.draft(input);
+      });
+      assert.ok(!blankLatest.includes('旧作业') && blankLatest.includes('本次记录未提供'));
+      assert.ok(!blankLatest.includes('百分比') && !blankLatest.includes('学生表现'));
       assert.ok(!value.includes('另一学生')); assert.equal(await page.locator('#feedback-dialog b').count(), 0);
       for (const width of [320, 375, 1440]) {
         await page.setViewportSize({ width, height: 900 });

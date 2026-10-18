@@ -10,36 +10,76 @@
   lessons.sort((a,b)=>(a.lessonDate+' '+a.checkIn).localeCompare(b.lessonDate+' '+b.checkIn));
   return {studentName:lessons[0].studentName,lessons};
  }
- function draft({studentName,lessons}){
-  const sections=lessons.map(r=>[
-   [r.lessonDate||'日期未填写',r.checkIn&&r.checkOut?r.checkIn+'–'+r.checkOut:r.checkIn||r.checkOut,r.courseName,r.teacherName&&'导师：'+r.teacherName].filter(Boolean).join(' · '),
-   '课堂内容：'+(r.content||'未填写'),
-   '课后作业：'+(r.homework||'未填写')
-  ].join('\n'));
-  return studentName+'同学及家长，您好！\n以下是本次选取的 '+lessons.length+' 次课程记录与作业安排：\n\n'+sections.join('\n\n');
+ function defaults(input){
+  const teachers=[...new Set(input.lessons.map(r=>r.teacherName).filter(Boolean))];
+  const dated=input.lessons.every(r=>r.lessonDate);
+  const last=input.lessons.at(-1),latest=dated?input.lessons.filter(r=>r.lessonDate===last.lessonDate&&r.checkIn===last.checkIn):[];
+  return {teacherName:teachers.length===1?teachers[0]:'',project:'',progress:'',pronoun:'学生',observation:'',advice:'',homework:[...new Set(latest.map(r=>r.homework).filter(Boolean))].join('；')};
+ }
+ function draft({studentName,lessons},options={}){
+  const o={...defaults({lessons}),...options};
+  const lines=['🔸学生姓名：'+studentName];
+  if(text(o.project))lines.push('🔸当前项目：'+text(o.project));
+  if(text(o.teacherName))lines.push('🔸当前导师：'+text(o.teacherName));
+  if(text(o.progress)){
+   const n=Number(o.progress);
+   if(!Number.isFinite(n)||n<0||n>100)throw Error('学生进度请填写 0–100 之间的数值。');
+   lines.push('🔸最新进度百分比：'+n+'%');
+  }
+  const contents=[...new Set(lessons.map(r=>r.content).filter(Boolean))];
+  lines.push('🔸课程内容：'+(contents.join('；')||'本次记录未提供。'));
+  lines.push('🔸最新作业：'+(text(o.homework)||'本次记录未提供。'));
+  if(text(o.observation))lines.push('🔸学生表现：'+text(o.observation));
+  if(text(o.advice))lines.push('🔸学习建议：建议'+(['他','她'].includes(o.pronoun)?o.pronoun:'学生')+'：'+text(o.advice));
+  return lines.join('\n');
  }
  const style=document.createElement('style');style.textContent=`
  #feedback-dialog{width:min(760px,calc(100vw - 24px));padding:24px;color:inherit}
  #feedback-dialog .dialog-bar{gap:12px}#feedback-dialog h2{margin:0;font-size:20px}
  #feedback-dialog p{font-size:13px;line-height:1.7;overflow-wrap:anywhere}
+ #feedback-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}#feedback-settings label{margin:0}#feedback-settings .wide{grid-column:1/-1}#feedback-settings label>span{display:block;margin-bottom:7px}#feedback-settings textarea{min-height:90px}#feedback-settings small{display:block;font-weight:400;color:#69748a;line-height:1.6;margin-top:6px}#feedback-sources{margin:14px 0;font-size:13px}#feedback-sources ul{padding-left:20px;line-height:1.8;overflow-wrap:anywhere}
  #feedback-text{min-height:320px;max-height:52vh}#feedback-dialog .actions{justify-content:flex-end}
  #feedback-dialog .actions button{flex:0 1 auto}#feedback-status{min-height:22px}
- @media(max-width:600px){#feedback-dialog{padding:16px}#feedback-text{min-height:260px}}
+ @media(max-width:600px){#feedback-dialog{padding:16px}#feedback-text{min-height:260px}#feedback-settings{grid-template-columns:1fr}}
  `;document.head.append(style);
  const dialog=document.createElement('dialog');dialog.id='feedback-dialog';dialog.setAttribute('aria-labelledby','feedback-title');dialog.setAttribute('aria-describedby','feedback-note');
- dialog.innerHTML=`<div class="dialog-bar"><h2 id="feedback-title">课程反馈草稿</h2><button type="button" id="feedback-close">关闭</button></div>
- <p id="feedback-note" class="hint">模板草稿 · 尚未接入 AI。按原文整理课堂内容和作业，请核对后复制发送。同名学生请核对课程归属。</p>
- <p id="feedback-source"></p><label for="feedback-text">反馈正文（可直接修改）</label><textarea id="feedback-text"></textarea>
- <div class="actions"><button type="button" class="primary" id="feedback-copy">复制反馈</button></div><p id="feedback-status" class="hint" role="status"></p>`;
+ dialog.innerHTML=`<div class="dialog-bar"><h2 id="feedback-title">补充反馈信息</h2><button type="button" id="feedback-close">关闭</button></div>
+ <p id="feedback-note" class="hint">模板草稿 · 尚未接入 AI。按所选课程原文整理，补充项可留空。反馈正文不添加日期和上课时间。</p>
+ <p id="feedback-source"></p><details id="feedback-sources"><summary>核对所选课程（日期仅用于核对）</summary><ul></ul></details>
+ <form id="feedback-settings">
+ <label><span>当前导师</span><input id="feedback-teacher" maxlength="100" placeholder="填写老师姓名"><small>所选课程导师一致时自动带入，可修改。</small></label>
+ <label><span>学生进度（%）</span><input id="feedback-progress" type="number" min="0" max="100" step="any" placeholder="例如 35；不确定可留空"></label>
+ <label><span>学生称谓</span><select id="feedback-pronoun"><option value="学生">学生（不指定）</option><option value="她">她</option><option value="他">他</option></select><small>用于建议措辞；不会根据姓名推测性别。</small></label>
+ <label><span>当前项目（选填）</span><input id="feedback-project" maxlength="200" placeholder="例如：项目一 · 对视"></label>
+ <label class="wide"><span>本次作业（可调整）</span><textarea id="feedback-homework" placeholder="填写本次需要反馈的作业"></textarea><small id="feedback-homework-hint"></small></label>
+ <label class="wide"><span>课堂表现补充（选填）</span><textarea id="feedback-observation" placeholder="填写实际观察，例如：能根据测试结果调整结构。"></textarea><small>仅填写真实表现，不会自动补写评价。</small></label>
+ <label class="wide"><span>学习建议（选填）</span><textarea id="feedback-advice" placeholder="例如：先梳理主要问题，再逐项测试。"></textarea><small>与作业分开；没有具体建议可留空。</small></label>
+ <div class="actions wide"><button type="submit" class="primary">生成反馈草稿</button></div></form>
+ <div id="feedback-result" hidden><label for="feedback-text">反馈正文（可直接修改）</label><textarea id="feedback-text"></textarea>
+ <div class="actions"><button type="button" id="feedback-back">返回调整信息</button><button type="button" class="primary" id="feedback-copy">复制反馈</button></div></div><p id="feedback-status" class="hint" role="status"></p>`;
  document.body.append(dialog);
- const body=dialog.querySelector('#feedback-text'),status=dialog.querySelector('#feedback-status'),copy=dialog.querySelector('#feedback-copy');
- dialog.querySelector('#feedback-close').onclick=()=>dialog.close();
+ const el=id=>dialog.querySelector('#feedback-'+id);
+ const body=el('text'),status=el('status'),copy=el('copy'),settings=el('settings'),result=el('result');
+ let current=null;
+ const fields={teacherName:'teacher',progress:'progress',pronoun:'pronoun',project:'project',homework:'homework',observation:'observation',advice:'advice'};
+ el('close').onclick=()=>dialog.close();
+ settings.onsubmit=e=>{
+  e.preventDefault();
+  try{const options=Object.fromEntries(Object.entries(fields).map(([key,id])=>[key,el(id).value]));body.value=draft(current,options);settings.hidden=true;result.hidden=false;el('title').textContent='课程反馈草稿';status.textContent='草稿已生成，请核对后复制。';copy.disabled=false;body.focus();}
+  catch(error){status.textContent=error.message;}
+ };
+ el('back').onclick=()=>{settings.hidden=false;result.hidden=true;el('title').textContent='补充反馈信息';status.textContent='重新生成会替换正文中的手动修改。';el('teacher').focus();};
  body.oninput=()=>{status.textContent='';copy.disabled=!body.value.trim();};
  copy.onclick=async()=>{const value=body.value;if(!value.trim())return;copy.disabled=true;try{await navigator.clipboard.writeText(value);status.textContent='已复制，可粘贴发送给学生或家长。';}catch{body.focus();body.select();status.textContent='无法自动复制，正文已选中，请手动复制。';}finally{copy.disabled=!body.value.trim();}};
  // Keep drafts in memory only; no feedback or reference history is persisted.
  window.SFKFeedback={prepare,draft,open(rows){
-  const input=prepare(rows);body.value=draft(input);copy.disabled=false;status.textContent='';
-  dialog.querySelector('#feedback-source').textContent=input.studentName+' · 已选 '+input.lessons.length+' 次课程 · 按上课时间排序';
-  dialog.showModal();body.focus();
+  current=prepare(rows);const values=defaults(current);
+  for(const [key,id] of Object.entries(fields))el(id).value=values[key];
+  body.value='';copy.disabled=true;status.textContent='';settings.hidden=false;result.hidden=true;el('title').textContent='补充反馈信息';
+  el('source').textContent=current.studentName+' · 已选 '+current.lessons.length+' 次课程 · 同名学生请核对课程归属';
+  const sources=el('sources');sources.open=false;const list=sources.querySelector('ul');list.replaceChildren();
+  for(const r of current.lessons){const li=document.createElement('li');li.textContent=[r.lessonDate||'日期未提供',r.checkIn,r.courseName,r.teacherName&&'导师：'+r.teacherName,'内容：'+(r.content||'未填写'),'作业：'+(r.homework||'未填写')].filter(Boolean).join(' · ');list.append(li);}
+  el('homework-hint').textContent=current.lessons.every(r=>r.lessonDate)?'仅带入最近一次上课的作业；最新记录为空时不沿用旧作业。请确认是否仍适用。':'部分课程缺少日期，无法确定最新作业，请手动填写。';
+  dialog.showModal();el('teacher').focus();
  }};
 })();
