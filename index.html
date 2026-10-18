@@ -19,7 +19,7 @@ header .header-actions{display:flex;align-items:center;gap:12px;margin-left:auto
 </style>
 </head>
 <body>
-<header><a class="brand" id="home-link" href="./" aria-label="返回首页"><span class="mark" aria-hidden="true">课</span><div><div class="eyebrow">TEACHING WORKSPACE</div><div class="brand-title"><h1>学生上课签单</h1><span class="app-version" id="app-version" title="v0.3 · 页面边距与表单列对齐">v0.3</span></div></div></a><p>课后记录</p><button class="mobile-preview" type="button" data-action="preview">预览</button></header>
+<header><a class="brand" id="home-link" href="./" aria-label="返回首页"><span class="mark" aria-hidden="true">课</span><div><div class="eyebrow">TEACHING WORKSPACE</div><div class="brand-title"><h1>学生上课签单</h1><span class="app-version" id="app-version" title="v0.4 · 页面布局与自然反馈">v0.4</span></div></div></a><p>课后记录</p><button class="mobile-preview" type="button" data-action="preview">预览</button></header>
 <main class="layout" hidden>
 <form id="record-form" novalidate>
 <section class="section" aria-labelledby="basic-title"><h2 id="basic-title"><span class="num">01</span>课程信息</h2><div class="grid">
@@ -105,16 +105,16 @@ async function performExport(kind){const svg=currentDocument.svg;const buttons=[
 document.querySelectorAll('[data-action]').forEach(btn=>btn.onclick=()=>{if(btn.dataset.action==='preview'){render();$('large-paper').innerHTML=currentDocument.svg;$('preview-dialog').showModal();}else requestExport(btn.dataset.action);});$('close-preview').onclick=()=>$('preview-dialog').close();window.addEventListener('beforeprint',render);window.addEventListener('beforeunload',e=>{if(window.SFKHasUnsavedChanges?.()){e.preventDefault();e.returnValue='';}});
 render();
 </script>
-<script src="config.js?v=0.3"></script>
-<script src="fonts.js?v=0.3"></script>
-<script src="cloud.js?v=0.3"></script>
-<script src="sharing.js?v=0.3"></script>
-<script src="exports.js?v=0.3"></script>
-<script src="feedback.js?v=0.3"></script>
-<script src="workspace.js?v=0.3"></script>
-<script src="users.js?v=0.3"></script>
-<script src="batch.js?v=0.3"></script>
-<script src="ocr-parser.js?v=0.3"></script>
-<script src="ocr.js?v=0.3"></script>
+<script src="config.js?v=0.4"></script>
+<script src="fonts.js?v=0.4"></script>
+<script src="cloud.js?v=0.4"></script>
+<script src="sharing.js?v=0.4"></script>
+<script src="exports.js?v=0.4"></script>
+<script src="feedback.js?v=0.4"></script>
+<script src="workspace.js?v=0.4"></script>
+<script src="users.js?v=0.4"></script>
+<script src="batch.js?v=0.4"></script>
+<script src="ocr-parser.js?v=0.4"></script>
+<script src="ocr.js?v=0.4"></script>
 </body>
 </html>

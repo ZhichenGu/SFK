@@ -27,8 +27,8 @@
    lines.push('🔸最新进度百分比：'+n+'%');
   }
   const contents=[...new Set(lessons.map(r=>r.content).filter(Boolean))];
-  lines.push('🔸课程内容：'+(contents.join('；')||'本次记录未提供。'));
-  lines.push('🔸最新作业：'+(text(o.homework)||'本次记录未提供。'));
+  if(contents.length)lines.push('🔸课程内容：'+contents.join('；'));
+  if(text(o.homework))lines.push('🔸最新作业：'+text(o.homework));
   if(text(o.observation))lines.push('🔸学生表现：'+text(o.observation));
   if(text(o.advice))lines.push('🔸学习建议：建议'+(['他','她'].includes(o.pronoun)?o.pronoun:'学生')+'：'+text(o.advice));
   return lines.join('\n');
