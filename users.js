@@ -31,7 +31,10 @@ window.SFKUser=(()=>{
   const chipBtn=document.createElement('button');chipBtn.type='button';chipBtn.id='user-chip-btn';chipBtn.textContent='访客 ▾';chipBtn.title='切换用户';chipBtn.style.cssText='min-height:38px;padding:0 14px';
   chipBtn.onclick=()=>showSelect();
   chip.append(chipBtn);
-  const header=document.querySelector('header');if(header)header.append(chip);
+  const guideBtn=document.createElement('button');guideBtn.type='button';guideBtn.id='quickstart-button';guideBtn.textContent='签单教程';
+  guideBtn.hidden=location.hash.startsWith('#request=');guideBtn.onclick=()=>window.SFKGuide?.show();
+  const headerActions=document.createElement('nav');headerActions.className='header-actions';headerActions.setAttribute('aria-label','工作台导航');headerActions.append(guideBtn,chip);
+  const header=document.querySelector('header');if(header)header.append(headerActions);
 
   function updateChip(){if(_active){chip.style.display='';chipBtn.textContent=(_current?_current.name:'访客')+' ▾';chipBtn.title=(_current?_current.name:'访客')+' · 切换用户';}else{chip.style.display='none';}}
 
@@ -49,6 +52,7 @@ window.SFKUser=(()=>{
   async function showSelect(){
     if(window.SFKBeforeNavigate&&!await SFKBeforeNavigate())return;
     view.hidden=false;
+    if(window.SFKGuide?.view)SFKGuide.view.hidden=true;
     const dash=document.getElementById('dashboard');if(dash)dash.hidden=true;
     document.querySelector('main.layout').hidden=true;
     if(window.SFKBatch&&SFKBatch.view)SFKBatch.view.hidden=true;if(window.SFKOCR&&SFKOCR.view)SFKOCR.view.hidden=true;
@@ -81,7 +85,7 @@ window.SFKUser=(()=>{
     if(window.SFKShowDashboard)window.SFKShowDashboard();
   };
 
-  if(!location.hash.startsWith('#request='))showSelect();
+  if(!location.hash.startsWith('#request=')){if(location.hash==='#guide')window.SFKGuide?.show();else showSelect();}
 
   return {current:()=>_current,isActive:()=>_active,name:()=>_current?_current.name:'访客',view,showSelect};
 })();

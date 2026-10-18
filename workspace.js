@@ -37,10 +37,15 @@
    </article>
   </div>
  </section>`;dashboard.hidden=true;main.before(dashboard);
+ const guidePage=document.createElement('main');guidePage.id='quickstart-view';guidePage.className='workspace guide-page';guidePage.hidden=true;
+ const guideSection=dashboard.querySelector('.workspace-guide'),guideBar=document.createElement('div');guideBar.className='workspace-bar';
+ const guideBack=document.createElement('button');guideBack.id='guide-back';guideBack.type='button';guideBack.textContent='← 返回管理';
+ guideBar.append(guideSection.querySelector('h2'),guideBack);guidePage.append(guideBar,guideSection);dashboard.after(guidePage);
  style.textContent+=`
  .filter-field{display:flex;flex-direction:column;gap:7px;min-width:0;margin:0;font-weight:400}.filter-field>span{font-size:12px;color:#69748a}.filter-field input,.filter-field select{min-width:0}
  .bulk-selection,.bulk-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.bulk-selection .hint{margin:0}.bulk-bar .choice{font-size:14px}
  .record-info strong,.record-info p{overflow-wrap:anywhere}.record-info p{line-height:1.6}.record-card>input[type=checkbox]{flex-shrink:0}
+ .guide-page .workspace-guide{margin:0 0 36px}.guide-page .workspace-bar h2{margin:0}
  .workspace-guide{margin:32px 0 36px}.workspace-guide-heading h2{margin:0 0 8px}.workspace-guide-heading p{margin:0 0 20px;color:#69748a;font-size:14px;line-height:1.7}
  .workspace-guide-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.workspace-guide-card{display:flex;flex-direction:column;min-width:0;padding:24px;background:white;border:1px solid var(--line);border-radius:14px}
  .workspace-guide-label{font-size:12px;color:#69748a}.workspace-guide-card h3{font-size:19px;margin:6px 0 16px}.workspace-guide-flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:13px;background:#f5f7ff;border-radius:10px;font-size:12px;color:#3d4f9e}.workspace-guide-flow b{font-weight:400;color:#8d99be}
@@ -80,8 +85,8 @@
   }catch(e){$('workspace-status').textContent='刷新失败：'+e.message;}finally{refreshing=false;}
  }
  function setTeacherState(){$('new-record').disabled=false;const u=window.SFKUser&&SFKUser.current();const who=u?('当前：'+u.name+' · 只看自己的签单'):'访客模式 · 可查看全部签单';$('storage-description').textContent=(cloud?'云端保存':'本地预览')+' · '+who+' · 页面可见时每 15 秒更新签名状态。';}
- async function showDashboard(){if(!await beforeNavigate())return;navigation++;clearTimeout(autosaveTimer);active=null;main.hidden=true;dashboard.hidden=false;if(window.SFKBatch&&SFKBatch.view)SFKBatch.view.hidden=true;if(window.SFKUser&&SFKUser.view)SFKUser.view.hidden=true;if(window.SFKOCR&&SFKOCR.view)SFKOCR.view.hidden=true;history.replaceState(null,'',location.pathname+location.search);document.querySelector('h1').textContent='教学工作台';setTeacherState();await refresh(true);window.scrollTo(0,0);}
- async function openRecord(id){if(busy||!await beforeNavigate())return;const route=++navigation;try{if(window.SFKBatch&&SFKBatch.view)SFKBatch.view.hidden=true;if(window.SFKOCR&&SFKOCR.view)SFKOCR.view.hidden=true;const opened=id?await repository.get(id):(function(){const rec={...initialRecord(),studentName:''};const d=readDefaults();const u=window.SFKUser&&SFKUser.current();if(d.courseName)rec.courseName=d.courseName;if(u){rec.teacherName=u.name;rec.signatures.mentor={mode:'text',text:u.name,image:null,strokes:[],loading:false,revision:0};}else{if(d.mentor)rec.signatures.mentor=d.mentor;if(d.teacherName)rec.teacherName=d.teacherName;}return {id:crypto.randomUUID(),revision:0,record:rec};})();if(route!==navigation)return;active=opened;SFKEditor.load(active.record);baseline=snapshot();dashboard.hidden=true;main.hidden=false;$('share-result').hidden=true;$('share-status').textContent='';$('save-status').textContent=active.revision?'已载入保存的记录':'新签单';document.querySelector('h1').textContent='学生上课签单';history.replaceState(null,'','#edit='+active.id);window.scrollTo(0,0);}catch(e){$('workspace-status').textContent=e.message;}}
+ async function showDashboard(){if(!await beforeNavigate())return;navigation++;clearTimeout(autosaveTimer);active=null;guidePage.hidden=true;main.hidden=true;dashboard.hidden=false;if(window.SFKBatch&&SFKBatch.view)SFKBatch.view.hidden=true;if(window.SFKUser&&SFKUser.view)SFKUser.view.hidden=true;if(window.SFKOCR&&SFKOCR.view)SFKOCR.view.hidden=true;history.replaceState(null,'',location.pathname+location.search);document.querySelector('h1').textContent='教学工作台';setTeacherState();await refresh(true);window.scrollTo(0,0);}
+ async function openRecord(id){if(busy||!await beforeNavigate())return;const route=++navigation;try{guidePage.hidden=true;if(window.SFKBatch&&SFKBatch.view)SFKBatch.view.hidden=true;if(window.SFKOCR&&SFKOCR.view)SFKOCR.view.hidden=true;const opened=id?await repository.get(id):(function(){const rec={...initialRecord(),studentName:''};const d=readDefaults();const u=window.SFKUser&&SFKUser.current();if(d.courseName)rec.courseName=d.courseName;if(u){rec.teacherName=u.name;rec.signatures.mentor={mode:'text',text:u.name,image:null,strokes:[],loading:false,revision:0};}else{if(d.mentor)rec.signatures.mentor=d.mentor;if(d.teacherName)rec.teacherName=d.teacherName;}return {id:crypto.randomUUID(),revision:0,record:rec};})();if(route!==navigation)return;active=opened;SFKEditor.load(active.record);baseline=snapshot();dashboard.hidden=true;main.hidden=false;$('share-result').hidden=true;$('share-status').textContent='';$('save-status').textContent=active.revision?'已载入保存的记录':'新签单';document.querySelector('h1').textContent='学生上课签单';history.replaceState(null,'','#edit='+active.id);window.scrollTo(0,0);}catch(e){$('workspace-status').textContent=e.message;}}
  function save(){
   if(savePromise)return savePromise;
   if(!active)return Promise.reject(Error('请先打开签单。'));
@@ -117,11 +122,18 @@
    return true;
   }catch(e){saveStatus('暂未切换：'+e.message);return false;}
  }
+ window.SFKGuide={view:guidePage,async show(){
+  if(!await beforeNavigate())return;
+  main.hidden=true;dashboard.hidden=true;
+  for(const section of [window.SFKBatch?.view,window.SFKOCR?.view,window.SFKUser?.view])if(section)section.hidden=true;
+  guidePage.hidden=false;history.replaceState(null,'','#guide');document.querySelector('h1').textContent='签单快速上手';window.scrollTo(0,0);
+ }};
  window.SFKBeforeNavigate=beforeNavigate;
  async function action(fn){if(busy)return;busy=true;$('save-record').disabled=true;$('generate-share').disabled=true;try{if(savePromise)await savePromise;await fn();}catch(e){$('share-status').textContent=e.message;}finally{busy=false;$('save-record').disabled=false;$('generate-share').disabled=false;count();}}
  $('save-record').onclick=()=>action(save);
  $('back-workspace').onclick=()=>showDashboard();
  $('new-record').onclick=()=>openRecord(null);
+ $('guide-back').onclick=()=>$('home-link').click();
  $('guide-new-record').onclick=()=>$('new-record').click();
  $('guide-batch-new').onclick=()=>$('batch-new').click();
  $('generate-share').onclick=()=>action(async()=>{if(!cloud)throw Error('当前是本地预览，请先配置 Supabase 后生成学生签名链接。');render();const {errors,missing}=validateExport();if(errors.length)throw Error(errors.join('；'));if(!state.studentName.trim())throw Error('请填写学生姓名，方便签名后查找记录。');const result=await save();const share=await SFKCloud.publish(result.id);if(active?.id!==result.id)return;active.published=true;const base=new URL(SFK_CONFIG.siteUrl);if(base.protocol!=='https:')throw Error('请在 config.js 配置学生可访问的 HTTPS 网站地址。');base.hash='request='+share.token;base.search='';$('share-url').value=base.href;$('open-share').href=base.href;$('share-result').hidden=false;$('share-status').textContent='签名链接已生成，可复制发给学生。'+(missing.filter(s=>s!=='学生签名').length?'未填字段已保留为空。':'');});
@@ -133,8 +145,8 @@
  window.addEventListener('storage',e=>{if(!cloud&&e.key===KEY)refresh();});document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
  if(location.hash.startsWith('#request=')){dashboard.hidden=true;savebar.hidden=true;SFKEditor.studentRoute(location.hash.slice(9));}
  else{window.SFKHasUnsavedChanges=()=>!!active&&snapshot()!==baseline;window.SFKShowDashboard=showDashboard;setInterval(()=>{if(!document.hidden&&window.SFKUser&&SFKUser.isActive())refresh();},15000);}
- $('batch-new').onclick=async()=>{if(await beforeNavigate())window.SFKBatch?.show();};
- $('ocr-new').onclick=async()=>{if(await beforeNavigate())window.SFKOCR?.show();};
+ $('batch-new').onclick=async()=>{if(await beforeNavigate()){guidePage.hidden=true;window.SFKBatch?.show();}};
+ $('ocr-new').onclick=async()=>{if(await beforeNavigate()){guidePage.hidden=true;window.SFKOCR?.show();}};
  form.addEventListener('input',scheduleAutosave);form.addEventListener('change',scheduleAutosave);
  function saveStatus(t){$('save-status').textContent=t;}
  function scheduleAutosave(){if(!active||main.hidden||active.signed_at||active.published)return;if(snapshot()!==baseline)saveStatus('未保存');clearTimeout(autosaveTimer);autosaveTimer=setTimeout(runAutosave,2000);}

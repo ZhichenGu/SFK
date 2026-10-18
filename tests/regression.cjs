@@ -98,11 +98,15 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
         }
       }
       await page.locator('#record-list .record-card').waitFor(); await checkWidths();
+      assert.equal(await page.locator('#dashboard .workspace-guide').count(), 0);
+      assert.equal(await page.locator('#quickstart-view').isVisible(), false);
       await page.setViewportSize({ width: 375, height: 812 });
       assert.equal(await page.locator('header .mobile-preview').isVisible(), false);
+      await page.locator('#quickstart-button').click(); await page.locator('#quickstart-view').waitFor({state:'visible'}); await checkWidths();
+      await page.setViewportSize({width:375,height:812});
       await page.locator('#guide-new-record').click(); await page.locator('main.layout').waitFor({ state: 'visible' });
       assert.equal(await page.locator('header .mobile-preview').isVisible(), true); await checkWidths();
-      await page.locator('#home-link').click(); await page.locator('#guide-batch-new').click(); await page.locator('#batch-view').waitFor({ state: 'visible' });
+      await page.locator('#home-link').click(); await page.locator('#quickstart-button').click(); await page.locator('#guide-batch-new').click(); await page.locator('#batch-view').waitFor({ state: 'visible' });
       const more = page.locator('.batch-row .ops').getByRole('button', { name: '更多', exact: true });
       assert.equal(await page.locator('.batch-row .batch-sub').isVisible(), false);
       await more.click(); assert.equal(await page.locator('.batch-row .batch-sub').isVisible(), true);
@@ -112,6 +116,10 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
       await page.locator('#ocr-recognize').click(); await page.locator('#ocr-next').click();
       await page.locator('.ocr-content-row').waitFor(); await checkWidths();
       assert.ok(await page.locator('.ocr-content-row > .cell').first().evaluate(el => el.getBoundingClientRect().width >= 160));
+      await page.locator('#quickstart-button').click(); await page.locator('#quickstart-view').waitFor({state:'visible'});
+      await page.reload(); await page.locator('#quickstart-view').waitFor({state:'visible'});
+      await page.locator('#guide-back').click(); await page.locator('#dashboard').waitFor({state:'visible'});
+      assert.equal(await page.evaluate(()=>SFKUser.isActive()),true);
       await f.close();
     });
 
