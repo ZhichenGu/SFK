@@ -14,10 +14,36 @@ window.SFKOCR=(()=>{
   const style=document.createElement('style');
   style.textContent='.ocr-view{max-width:1428px;margin:30px auto;padding:0 24px}.ocr-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}.ocr-bar h2{margin:0}.ocr-status{color:#69748a;font-size:14px;line-height:1.6}.dropzone{border:2px dashed var(--line);border-radius:16px;background:#fff;padding:44px 20px;text-align:center;cursor:pointer;color:#69748a}.dropzone.drag{border-color:var(--blue);background:#eef3ff}.dropzone strong{color:#202637;font-size:16px}.ocr-preview{max-width:100%;max-height:320px;margin:16px auto 0;border-radius:12px;border:1px solid var(--line);display:block}.ocr-section{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}.ocr-head{display:grid;grid-template-columns:44px minmax(210px,1.5fr) minmax(150px,1fr) 120px 120px 120px 120px 76px;gap:10px;padding:0 4px 8px;color:#69748a;font-size:13px}.ocr-row{display:grid;grid-template-columns:44px minmax(210px,1.5fr) minmax(150px,1fr) 120px 120px 120px 120px 76px;gap:10px;align-items:start;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}.ocr-row.done{border-color:#9fe1cb}.ocr-row select,.ocr-row input{width:100%}.ocr-row textarea{width:100%;resize:vertical;min-height:46px}.ocr-row .cell{min-width:0}.ocr-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:14px 0}.ocr-actions button{min-height:40px}.apply-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px}.apply-grid textarea{width:100%;resize:vertical;min-height:64px}.copyall{background:#f7f8fb;border:1px dashed var(--line);border-radius:10px;padding:14px;margin-top:12px;white-space:pre-wrap;font-size:13px;color:#333;word-break:break-all}.badge{padding:4px 8px;border-radius:8px;font-size:12px}@media(max-width:1100px){.ocr-view{padding:0 14px 90px;margin-top:16px}.ocr-head{display:none}.ocr-row{display:flex;flex-direction:column;gap:10px;padding:14px}.ocr-row .cell{padding-left:0}.ocr-row .cell::before{content:attr(data-label);display:block;font-size:12px;color:#69748a;margin-bottom:4px}.apply-grid{grid-template-columns:1fr}}';
   document.head.append(style);
+  style.textContent+=`
+  .ocr-guide{margin-top:32px;padding:24px;background:#fff;border:1px solid var(--line);border-radius:16px}
+  .ocr-guide h3{font-size:18px;margin:0 0 8px}.ocr-guide-intro{margin:0;color:#69748a;font-size:14px;line-height:1.7}
+  .ocr-guide-steps{list-style:none;padding:0;margin:22px 0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+  .ocr-guide-steps li{display:flex;align-items:flex-start;gap:10px;min-width:0}.ocr-guide-number{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#eef1ff;color:var(--blue);font-size:14px;font-weight:700}
+  .ocr-guide-steps strong{font-size:14px}.ocr-guide-steps p{font-size:13px;line-height:1.7;color:#69748a;margin:6px 0 0}
+  .ocr-guide-images{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
+  .ocr-guide figure{margin:0;min-width:0}.ocr-guide figcaption{font-size:13px;line-height:1.6;margin-bottom:10px;color:#59667f}
+  .ocr-guide-images a{display:block;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#f4f6fa}.ocr-guide-images a:focus-visible{outline:3px solid #9aaeff;outline-offset:3px}
+  .ocr-guide img{display:block;width:100%;height:auto}.ocr-guide-tip{font-size:13px;color:#69748a;line-height:1.7;margin:18px 0 0}
+  @media(max-width:700px){.ocr-guide{padding:18px 16px;margin-top:24px}.ocr-guide-steps,.ocr-guide-images{grid-template-columns:1fr;gap:18px}}
+  `;
 
   const view=document.createElement('main');view.className='ocr-view';view.id='ocr-view';view.hidden=true;
   view.innerHTML='<div class="ocr-bar"><div><h2>课表识别新建</h2><p class="ocr-status">上传课表截图，自动识别学生 / 课程 / 时间，确认后批量生成签单。</p></div><div><button type="button" id="ocr-back">← 返回管理</button></div></div>'+
-   '<div id="ocr-stage"></div><p class="ocr-status" id="ocr-status" role="status"></p>';
+   '<div id="ocr-stage"></div><p class="ocr-status" id="ocr-status" role="status"></p>'+`
+   <section class="ocr-guide" id="ocr-guide" aria-labelledby="ocr-guide-title">
+    <h3 id="ocr-guide-title">课表识别怎么用？</h3>
+    <p class="ocr-guide-intro">按下面三步操作。参考图里有两张课程卡片，核对时应是两节课。</p>
+    <ol class="ocr-guide-steps">
+     <li><span class="ocr-guide-number">1</span><div><strong>截取完整课程卡片</strong><p>保留课程名称、学生姓名和起止时间。上传清晰的 JPG / PNG，然后点「开始识别」。</p></div></li>
+     <li><span class="ocr-guide-number">2</span><div><strong>核对每一节课</strong><p>检查姓名、时间和课程类型；日期、教师等缺项可手动补充。多余项删除，漏项可手动添加。</p></div></li>
+     <li><span class="ocr-guide-number">3</span><div><strong>填写并生成链接</strong><p>点「下一步：填写内容」，填写上课内容和作业，生成签单后复制链接发给对应学生。</p></div></li>
+    </ol>
+    <div class="ocr-guide-images">
+     <figure><figcaption>截图参考 · 完整保留两张课程卡片</figcaption><a href="assets/ocr-guide/timetable-reference.png" target="_blank" rel="noopener noreferrer" aria-label="放大查看课表参考图"><img src="assets/ocr-guide/timetable-reference.png" width="670" height="332" loading="lazy" alt="课表参考：Michael Zhicheng Fan 的课程为 13:30 至 14:30，金紫宁的课程为 14:30 至 15:30"></a></figure>
+     <figure><figcaption>填写界面示例 · 两张卡片对应两节课（演示）</figcaption><a href="assets/ocr-guide/confirmation-example.png" target="_blank" rel="noopener noreferrer" aria-label="放大查看课程核对示例"><img src="assets/ocr-guide/confirmation-example.png" loading="lazy" alt="课程核对界面示例，两名学生分别对应一条课程记录，可编辑姓名、课程类型、日期、开始和结束时间"></a></figure>
+    </div>
+    <p class="ocr-guide-tip">点击图片可放大查看。截图未包含的信息不会被自动识别出来；结果有误时，可直接在核对页修改。</p>
+   </section>`;
   document.body.append(view);
 
   const $=id=>document.getElementById(id);
@@ -30,6 +56,7 @@ window.SFKOCR=(()=>{
   }
 
   function renderUpload(){
+    $('ocr-guide').hidden=false;
     stageEl().innerHTML='<div class="ocr-section"><div class="dropzone" id="ocr-drop"><strong>点击或拖拽上传课表截图</strong><br>支持 JPG / JPEG / PNG，单张图片</div><input id="ocr-file" type="file" accept="image/jpeg,image/png" hidden><img id="ocr-preview" class="ocr-preview" alt="课表预览" hidden></div><div class="ocr-actions"><button type="button" class="primary" id="ocr-recognize" disabled>开始识别</button><button type="button" id="ocr-reset">重新上传</button></div>';
     const drop=$('ocr-drop'),file=$('ocr-file'),preview=$('ocr-preview'),rec=$('ocr-recognize');
     drop.onclick=()=>file.click();
@@ -50,7 +77,7 @@ window.SFKOCR=(()=>{
   }
 
   async function recognize(){
-    if(busy)return;busy=true;stageEl().innerHTML='<div class="ocr-section" style="text-align:center;padding:60px 20px"><p class="ocr-status" style="font-size:16px">正在识别课表…</p><p class="ocr-status">首次调用 Google Vision 可能需数秒</p></div>';
+    if(busy)return;busy=true;$('ocr-guide').hidden=true;stageEl().innerHTML='<div class="ocr-section" style="text-align:center;padding:60px 20px"><p class="ocr-status" style="font-size:16px">正在识别课表…</p><p class="ocr-status">首次调用 Google Vision 可能需数秒</p></div>';
     status('');
     try{
       if(!cloud.configured){throw Error('当前是本地预览，无法调用 OCR。请先配置 Supabase 并部署 ocr-schedule 函数。');}
