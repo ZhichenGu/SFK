@@ -131,6 +131,12 @@ window.SFKOCR=(()=>{
     return /基础|软件/.test(title)&&!/项目/.test(title)?'基础/软件课':'项目课';
   }
 
+  function updateRow(row,key,value){
+    if(row[key]===value)return false;
+    row[key]=value;
+    if(row.status==='linked'||row.link){row.status='new';row.link='';row.error='';if($('ocr-results'))renderResults();return true;}
+    return false;
+  }
   function renderRow(row){
     const box=document.createElement('div');box.className='ocr-row';
     const chk=document.createElement('input');chk.type='checkbox';chk.checked=row.selected;chk.onchange=()=>{row.selected=chk.checked;};
@@ -144,12 +150,12 @@ window.SFKOCR=(()=>{
     const del=document.createElement('button');del.type='button';del.className='danger';del.textContent='删除';del.onclick=()=>{rows.splice(rows.indexOf(row),1);renderConfirm();};
     const cells=[[chk,'选择'],[student,'学生'],[course,'课程'],[date,'日期'],[tin,'开始时间'],[tout,'结束时间'],[teacher,'教师'],[del,'操作']];
     cells.forEach(([el,label])=>{const c=document.createElement('div');c.className='cell';c.setAttribute('data-label',label);c.append(el);if(el===course&&row.courseTitle){const source=document.createElement('p');source.className='ocr-status';source.textContent='原课程：'+row.courseTitle;c.append(source);}box.append(c);});
-    student.oninput=()=>row.studentName=student.value;
-    course.onchange=()=>row.courseName=course.value;
-    date.oninput=()=>row.lessonDate=date.value;
-    tin.oninput=()=>row.checkIn=tin.value;
-    tout.oninput=()=>row.checkOut=tout.value;
-    teacher.oninput=()=>row.teacherName=teacher.value;
+    student.oninput=()=>{updateRow(row,'studentName',student.value);};
+    course.onchange=()=>{updateRow(row,'courseName',course.value);};
+    date.oninput=()=>{updateRow(row,'lessonDate',date.value);};
+    tin.oninput=()=>{updateRow(row,'checkIn',tin.value);};
+    tout.oninput=()=>{updateRow(row,'checkOut',tout.value);};
+    teacher.oninput=()=>{updateRow(row,'teacherName',teacher.value);};
     return box;
   }
   function input(val){const i=document.createElement('input');i.value=val||'';return i;}
@@ -175,7 +181,7 @@ window.SFKOCR=(()=>{
     const box=$('ocr-content-rows');box.replaceChildren();
     rows.filter(r=>r.selected).forEach(r=>box.append(renderContentRow(r)));
     $('ocr-back-confirm').onclick=()=>{stage='confirm';renderConfirm();};
-    $('ocr-apply').onclick=()=>{const c=$('ocr-apply-content').value,hm=$('ocr-apply-homework').value;if(!c&&!hm){status('请先在上方填写内容或作业');return;}rows.forEach(r=>{if(r.selected){if(c)r.content=c;if(hm)r.homework=hm;}});renderContent();status('已应用到全部勾选的签单。');};
+    $('ocr-apply').onclick=()=>{const c=$('ocr-apply-content').value,hm=$('ocr-apply-homework').value;if(!c&&!hm){status('请先在上方填写内容或作业');return;}rows.forEach(r=>{if(r.selected){if(c)updateRow(r,'content',c);if(hm)updateRow(r,'homework',hm);}});renderContent();status('已应用到全部勾选的签单。');};
     $('ocr-generate').onclick=()=>generate();
     generationControls();
   }
@@ -194,8 +200,8 @@ window.SFKOCR=(()=>{
     else if(row.status==='new'){linkArea.append(document.createTextNode('待生成'));}
     state.append(linkArea);
     box.append(name,ccell,hcell,state);
-    content.oninput=()=>row.content=content.value;
-    homework.oninput=()=>row.homework=homework.value;
+    content.oninput=()=>{if(updateRow(row,'content',content.value))linkArea.textContent='内容已修改，待重新生成';};
+    homework.oninput=()=>{if(updateRow(row,'homework',homework.value))linkArea.textContent='作业已修改，待重新生成';};
     return box;
   }
 

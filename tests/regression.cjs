@@ -93,6 +93,55 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
     }
     async function test(name, run) { await run(); console.log('PASS', name); }
 
+    await test('修复：单份保存丢响应可回读恢复，重试不重复写入',async()=>{
+      const f=await fixture(),{page,api}=f;await f.home();await page.locator('#new-record').click();await page.locator('#studentName').fill('单份丢响应');
+      api.dropNames.add('单份丢响应');await page.locator('#save-record').click();await page.waitForFunction(()=>document.getElementById('share-status').textContent.includes('fetch'));
+      assert.equal(f.db.size,1);await page.locator('#save-record').click();await page.waitForFunction(()=>document.getElementById('save-status').textContent.includes('已保存'));
+      assert.equal(f.saves.length,1);await page.locator('#home-link').click();await page.locator('#dashboard').waitFor({state:'visible'});assert.equal(f.db.size,1);await f.close();
+    });
+    await test('修复：保存丢响应后保留新输入，不覆盖真正的并发更新',async()=>{
+      const f=await fixture(),{page,api}=f;await f.home();await page.locator('#new-record').click();await page.locator('#studentName').fill('丢响应后继续');
+      api.dropNames.add('丢响应后继续');await page.locator('#save-record').click();await page.waitForFunction(()=>document.getElementById('share-status').textContent.includes('fetch'));
+      await page.locator('#content').fill('响应丢失后新增');await page.locator('#save-record').click();await page.waitForFunction(()=>document.getElementById('save-status').textContent.includes('已保存'));
+      assert.equal(f.saves.length,2);assert.equal(f.db.values().next().value.record.content,'响应丢失后新增');
+      api.dropNames.add('丢响应后继续');await page.locator('#content').fill('另一次保存');await page.locator('#save-record').click();await page.waitForFunction(()=>document.getElementById('share-status').textContent.includes('fetch'));
+      const saved=f.db.values().next().value;saved.revision++;saved.record.content='其他设备的新内容';const before=f.saves.length;
+      await page.locator('#save-record').click();await page.waitForFunction(()=>document.getElementById('share-status').textContent.includes('不能覆盖重试'));
+      assert.equal(f.saves.length,before);assert.equal(saved.record.content,'其他设备的新内容');assert.equal(await page.locator('#content').inputValue(),'另一次保存');await f.close();
+    });
+    await test('修复：OCR生成后编辑原记录，清除旧链接并重新保存，不新建重复项',async()=>{
+      const f=await fixture(),{page}=f;await f.home();await page.locator('#ocr-new').click();
+      await page.locator('#ocr-file').setInputFiles(path.join(root,'assets/ocr-guide/timetable-reference.png'));await page.locator('#ocr-recognize').click();await page.locator('#ocr-next').click();
+      await page.locator('#ocr-content-rows textarea').first().fill('修改前');await page.locator('#ocr-generate').click();await page.waitForFunction(()=>!SFKOCR.isBusy());
+      const id=f.db.keys().next().value;await page.locator('#ocr-content-rows textarea').first().fill('修改后');
+      assert.equal(await page.locator('#ocr-content-rows a').count(),0);assert.equal(await page.locator('#ocr-results a').count(),0);
+      await page.locator('#ocr-generate').click();await page.waitForFunction(()=>!SFKOCR.isBusy());
+      assert.equal(f.db.size,1);assert.equal(f.db.get(id).record.content,'修改后');assert.equal(f.saves.length,2);assert.equal(f.publishes.length,2);
+      await page.locator('#ocr-generate').click();assert.equal(f.saves.length,2);await f.close();
+    });
+    await test('修复：批量两种复制均失败时不标记成功',async()=>{
+      const f=await fixture(),{page}=f;await f.home();await page.locator('#batch-new').click();await page.locator('.batch-row input[list]').fill('复制学生');
+      await page.locator('#batch-generate').click();await page.waitForFunction(()=>!SFKBatch.isBusy());
+      await page.evaluate(()=>{Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('denied');}}});document.execCommand=()=>false;});
+      const copy=page.locator('.row-link button');await copy.click();assert.equal(await copy.textContent(),'复制链接');assert.ok((await page.locator('#batch-status').textContent()).includes('复制失败'));assert.equal(await page.evaluate(()=>localStorage.getItem('sfk-copied-v1')),null);await f.close();
+    });
+    await test('修复：同一学生多份反馈复用结果，手动再生成才新增API调用',async()=>{
+      const f=await fixture(),{page,api}=f;f.db.set('a',f.row('a',{...record('合并学生'),content:'课程A',homework:'最新作业'}));f.db.set('b',f.row('b',{...record('合并学生'),content:'课程B',lessonDate:'2026-10-17'}));
+      await f.home();await page.locator('#record-list .record-card').nth(1).waitFor();await page.locator('#select-all').check();await page.locator('#generate-feedback').click();await page.locator('#feedback-dialog').waitFor({state:'visible'});
+      assert.equal(await page.locator('#feedback-homework').inputValue(),'最新作业');await page.locator('#feedback-generate').click();await page.locator('#feedback-result').waitFor({state:'visible'});
+      assert.equal(api.feedbackCalls.length,1);assert.deepEqual(api.feedbackCalls[0].lessons.map(r=>r.content),['课程B','课程A']);
+      await page.locator('#feedback-text').fill('保留手动修改');await page.locator('#feedback-back').click();await page.locator('#feedback-generate').click();await page.locator('#feedback-result').waitFor({state:'visible'});
+      assert.equal(api.feedbackCalls.length,1);assert.equal(await page.locator('#feedback-text').inputValue(),'保留手动修改');
+      await page.locator('#feedback-back').click();await page.setViewportSize({width:320,height:900});assert.ok(await page.locator('#feedback-dialog').evaluate(e=>e.scrollWidth<=e.clientWidth));await page.locator('#feedback-regenerate').click();await page.locator('#feedback-result').waitFor({state:'visible'});assert.equal(api.feedbackCalls.length,2);
+      await page.locator('#feedback-back').click();await page.locator('#feedback-progress').fill('50');await page.locator('#feedback-generate').click();await page.locator('#feedback-result').waitFor({state:'visible'});assert.equal(api.feedbackCalls.length,3);await f.close();
+    });
+    await test('修复：超过20份在读取详情和付费前阻止',async()=>{
+      const f=await fixture(),{page,api}=f;for(let i=0;i<21;i++)f.db.set('r'+i,f.row('r'+i,record('大批学生')));
+      await f.home();await page.locator('#record-list .record-card').nth(20).waitFor();await page.locator('#select-all').check();
+      let reads=0;page.on('request',request=>{if(new URL(request.url()).searchParams.has('id'))reads++;});await page.locator('#generate-feedback').click();await page.waitForFunction(()=>document.getElementById('workspace-status').textContent.includes('最多选择20份'));
+      assert.equal(reads,0);assert.equal(api.feedbackCalls.length,0);assert.equal(await page.locator('#feedback-dialog').isVisible(),false);await f.close();
+    });
+
     await test('反馈仅使用所选学生的课程原文，排序、编辑、复制和手机布局正常', async () => {
       const f = await fixture(), { page } = f;
       const later = { ...record('反馈学生'), content: '制作模型', homework: '补充草图', lessonDate: '2026-10-18' };
@@ -213,9 +262,9 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
 
     await test('品牌入口始终可返回首页，保留当前教师与编辑内容，版本号不随页面标题消失', async () => {
       const f = await fixture(), { page } = f;
-      await page.goto(origin); assert.equal(await page.locator('#app-version').textContent(), 'v0.7');
+      await page.goto(origin); assert.equal(await page.locator('#app-version').textContent(), 'v0.8');
       const scripts = await page.locator('script[src]').evaluateAll(nodes => nodes.map(e => new URL(e.src).searchParams.get('v')));
-      assert.ok(scripts.length > 0 && scripts.every(v => 'v' + v === 'v0.7'));
+      assert.ok(scripts.length > 0 && scripts.every(v => 'v' + v === 'v0.8'));
       await page.getByRole('link', { name: '返回首页', exact: true }).click(); await page.locator('#dashboard').waitFor({ state: 'visible' });
       await page.locator('#user-chip-btn').click(); await page.getByRole('button', { name: teacher.name, exact: true }).click();
       await page.locator('#new-record').click(); await page.locator('#studentName').fill('首页导航测试');
@@ -225,17 +274,17 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
       assert.ok((await page.locator('#user-chip-btn').textContent()).includes(teacher.name));
       for (const entry of ['batch-new', 'ocr-new']) {
         await page.locator('#' + entry).click(); await page.getByRole('link', { name: '返回首页', exact: true }).click();
-        await page.locator('#dashboard').waitFor({ state: 'visible' }); assert.equal(await page.locator('#app-version').textContent(), 'v0.7');
+        await page.locator('#dashboard').waitFor({ state: 'visible' }); assert.equal(await page.locator('#app-version').textContent(), 'v0.8');
       }
-      await page.screenshot({ path: '/tmp/sfk-home-v0.7-desktop.png', fullPage: true });
+      await page.screenshot({ path: '/tmp/sfk-home-v0.8-desktop.png', fullPage: true });
       await page.setViewportSize({ width: 375, height: 812 });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       assert.equal(await page.locator('#app-version').isVisible(), true);
-      await page.screenshot({ path: '/tmp/sfk-home-v0.7-mobile.png', fullPage: true });
+      await page.screenshot({ path: '/tmp/sfk-home-v0.8-mobile.png', fullPage: true });
       const shared = f.row('home-student', record('学生首页测试')); shared.share_token = token; f.db.set(shared.id, shared);
       await page.goto(origin + '/#request=' + token); await page.reload(); await page.locator('main.layout').waitFor({ state: 'visible' });
       await page.getByRole('link', { name: '返回首页', exact: true }).click(); await page.locator('#user-select').waitFor({ state: 'visible' });
-      assert.equal(new URL(page.url()).hash, ''); assert.equal(await page.locator('#app-version').textContent(), 'v0.7');
+      assert.equal(new URL(page.url()).hash, ''); assert.equal(await page.locator('#app-version').textContent(), 'v0.8');
       await f.close();
     });
 

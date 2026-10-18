@@ -91,7 +91,7 @@ window.SFKBatch=(()=>{
     const del=document.createElement('button');del.type='button';del.className='danger';del.textContent='删除';
     ops.append(more,reuse,dup,del);
     const linkArea=el('div','row-link');
-    if(row.status==='linked'&&row.link){const a=document.createElement('a');a.href=row.link;a.target='_blank';a.rel='noopener noreferrer';a.textContent='打开链接';const c=document.createElement('button');c.type='button';c.textContent=row.copied||copiedIds().has(row.id)?'已复制':'复制链接';c.onclick=async()=>{try{await navigator.clipboard.writeText(row.link);}catch{const t=document.createElement('input');t.value=row.link;document.body.append(t);t.select();document.execCommand('copy');t.remove();}row.copied=true;try{const s=copiedIds();s.add(row.id);localStorage.setItem(COPIED,JSON.stringify([...s]));}catch{}c.textContent='已复制';};linkArea.append(a,c);}
+    if(row.status==='linked'&&row.link){const a=document.createElement('a');a.href=row.link;a.target='_blank';a.rel='noopener noreferrer';a.textContent='打开链接';const c=document.createElement('button');c.type='button';c.textContent=row.copied||copiedIds().has(row.id)?'已复制':'复制链接';c.onclick=async()=>{let copied=false;try{await navigator.clipboard.writeText(row.link);copied=true;}catch{const t=document.createElement('input');t.value=row.link;document.body.append(t);try{t.select();copied=document.execCommand('copy');}catch{}finally{t.remove();}}if(!copied){status('复制失败，请打开链接后手动复制地址。');return;}row.copied=true;try{const s=copiedIds();s.add(row.id);localStorage.setItem(COPIED,JSON.stringify([...s]));}catch{}c.textContent='已复制';};linkArea.append(a,c);}
     if(row.error)linkArea.append(span('row-error',row.error));
     ops.append(linkArea);
     const sub=el('div','batch-sub');

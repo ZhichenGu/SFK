@@ -87,26 +87,44 @@
  function setTeacherState(){$('new-record').disabled=false;const u=window.SFKUser&&SFKUser.current();const who=u?('当前：'+u.name+' · 只看自己的签单'):'访客模式 · 可查看全部签单';$('storage-description').textContent=(cloud?'云端保存':'本地预览')+' · '+who+' · 页面可见时每 15 秒更新签名状态。';}
  async function showDashboard(){if(!await beforeNavigate())return;navigation++;clearTimeout(autosaveTimer);active=null;guidePage.hidden=true;main.hidden=true;dashboard.hidden=false;if(window.SFKBatch&&SFKBatch.view)SFKBatch.view.hidden=true;if(window.SFKUser&&SFKUser.view)SFKUser.view.hidden=true;if(window.SFKOCR&&SFKOCR.view)SFKOCR.view.hidden=true;history.replaceState(null,'',location.pathname+location.search);document.querySelector('h1').textContent='教学工作台';setTeacherState();await refresh(true);window.scrollTo(0,0);}
  async function openRecord(id){if(busy||!await beforeNavigate())return;const route=++navigation;try{guidePage.hidden=true;if(window.SFKBatch&&SFKBatch.view)SFKBatch.view.hidden=true;if(window.SFKOCR&&SFKOCR.view)SFKOCR.view.hidden=true;const opened=id?await repository.get(id):(function(){const rec={...initialRecord(),studentName:''};const d=readDefaults();const u=window.SFKUser&&SFKUser.current();if(d.courseName)rec.courseName=d.courseName;if(u){rec.teacherName=u.name;rec.signatures.mentor={mode:'text',text:u.name,image:null,strokes:[],loading:false,revision:0};}else{if(d.mentor)rec.signatures.mentor=d.mentor;if(d.teacherName)rec.teacherName=d.teacherName;}return {id:crypto.randomUUID(),revision:0,record:rec};})();if(route!==navigation)return;active=opened;SFKEditor.load(active.record);baseline=snapshot();dashboard.hidden=true;main.hidden=false;$('share-result').hidden=true;$('share-status').textContent='';$('save-status').textContent=active.revision?'已载入保存的记录':'新签单';document.querySelector('h1').textContent='学生上课签单';history.replaceState(null,'','#edit='+active.id);window.scrollTo(0,0);}catch(e){$('workspace-status').textContent=e.message;}}
+ function acceptSaved(target,result,before){
+  if(active!==target)return;
+  Object.assign(target,result);delete target.pendingSave;
+  rememberDefaults(result.record.courseName,teacherId()?null:(signaturePresent(result.record.signatures.mentor)?result.record.signatures.mentor:null),teacherId()?null:result.record.teacherName);
+  if(before===snapshot()){SFKEditor.load(result.record);baseline=snapshot();saveStatus(cloud?'已保存 · 云端':'已保存 · 本机');}
+  else{baseline=before;saveStatus('此前内容已保存，当前修改未保存');}
+ }
+ async function reconcileSave(target){
+  const pending=target.pendingSave;if(!pending)return;
+  let latest;
+  try{latest=await repository.get(target.id);}catch(e){
+   if(pending.revision===0&&/^(没有找到这份签单。|没有找到签单)$/.test(e.message)){delete target.pendingSave;return;}
+   throw Error('无法确认上次保存结果：'+e.message);
+  }
+  if(latest.revision===pending.revision){delete target.pendingSave;return;}
+  const normalized=r=>JSON.stringify(SFKCloud.cleanRecord(r));
+  let expected=pending.record;
+  // The save RPC clears the student's old signature when a signed lesson changes.
+  if(target.signed_at){expected=JSON.parse(JSON.stringify(expected));expected.signatures.student=blankSignature();}
+  if(latest.revision===pending.revision+1&&(normalized(latest.record)===normalized(pending.record)||normalized(latest.record)===normalized(expected))){
+   acceptSaved(target,latest,pending.before);return;
+  }
+  throw Error('记录已被更新，请核对云端内容，不能覆盖重试。');
+ }
  function save(){
   if(savePromise)return savePromise;
   if(!active)return Promise.reject(Error('请先打开签单。'));
-  if(active.revision&&snapshot()===baseline)return Promise.resolve(active);
-  const target=active,user=teacherId(),before=snapshot(),input=JSON.parse(before);
-  saveStatus('保存中…');
+  if(active.revision&&!active.pendingSave&&snapshot()===baseline)return Promise.resolve(active);
+  const target=active,user=teacherId();saveStatus('保存中…');
   savePromise=(async()=>{
    try{
-    const record=await SFKCloud.compactRecord(input);
+    await reconcileSave(target);
+    if(target.revision&&snapshot()===baseline)return target;
+    const before=snapshot(),input=JSON.parse(before),record=await SFKCloud.compactRecord(input);
     record.teacherName=(input.teacherName||'').trim()||(record.signatures.mentor.text||'').trim();
+    target.pendingSave={revision:target.revision,record,before};
     const result=await repository.save(target.id,target.revision,record,user);
-    // Keep published records on manual save until their state is reloaded.
-    result.published=!!target.published;
-    if(active===target){
-     active=result;
-     rememberDefaults(record.courseName,user?null:(signaturePresent(record.signatures.mentor)?record.signatures.mentor:null),user?null:record.teacherName);
-     if(before===snapshot()){SFKEditor.load(result.record);baseline=snapshot();saveStatus(cloud?'已保存 · 云端':'已保存 · 本机');}
-     else{baseline=before;saveStatus('此前内容已保存，当前修改未保存');}
-    }
-    return result;
+    result.published=!!target.published;acceptSaved(target,result,before);return target;
    }catch(e){if(active===target)saveStatus('保存失败：'+e.message);throw e;}
   })().finally(()=>{savePromise=null;});
   return savePromise;
@@ -143,7 +161,7 @@
  $('refresh-list').onclick=refresh;
  $('generate-feedback').onclick=async()=>{
   if(busy||!selection.size)return;
-  const selected=[...selection];busy=true;count();
+  const selected=[...selection];if(selected.length>20){$('workspace-status').textContent='每次最多选择20份课程签单，请减少勾选数量。';return;}busy=true;count();
   $('workspace-status').textContent='正在读取所选课程内容…';
   try{
    const rows=[];
