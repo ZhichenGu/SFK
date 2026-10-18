@@ -130,8 +130,9 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
         const input = SFKFeedback.prepare([{id:'old',record:{studentName:'学生',lessonDate:'2026-10-17',homework:'旧作业'}},{id:'new',record:{studentName:'学生',lessonDate:'2026-10-18',homework:''}}]);
         return SFKFeedback.draft(input);
       });
-      assert.ok(!blankLatest.includes('旧作业') && !blankLatest.includes('最新作业'));
-      assert.ok(!blankLatest.includes('百分比') && !blankLatest.includes('学生表现'));
+      for(const title of ['当前项目','当前导师','最新进度百分比','课程内容','最新作业','学生表现','学习建议'])assert.ok(blankLatest.includes('🔸'+title+'：'));
+      assert.ok(!blankLatest.includes('旧作业') && blankLatest.includes('🔸最新作业：\n'));
+      assert.ok(blankLatest.includes('🔸最新进度百分比：\n') && blankLatest.includes('🔸学生表现：\n'));
       assert.ok(!value.includes('另一学生')); assert.equal(await page.locator('#feedback-dialog b').count(), 0);
       for (const width of [320, 375, 1440]) {
         await page.setViewportSize({ width, height: 900 });
@@ -212,9 +213,9 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
 
     await test('品牌入口始终可返回首页，保留当前教师与编辑内容，版本号不随页面标题消失', async () => {
       const f = await fixture(), { page } = f;
-      await page.goto(origin); assert.equal(await page.locator('#app-version').textContent(), 'v0.4');
+      await page.goto(origin); assert.equal(await page.locator('#app-version').textContent(), 'v0.5');
       const scripts = await page.locator('script[src]').evaluateAll(nodes => nodes.map(e => new URL(e.src).searchParams.get('v')));
-      assert.ok(scripts.length > 0 && scripts.every(v => 'v' + v === 'v0.4'));
+      assert.ok(scripts.length > 0 && scripts.every(v => 'v' + v === 'v0.5'));
       await page.getByRole('link', { name: '返回首页', exact: true }).click(); await page.locator('#dashboard').waitFor({ state: 'visible' });
       await page.locator('#user-chip-btn').click(); await page.getByRole('button', { name: teacher.name, exact: true }).click();
       await page.locator('#new-record').click(); await page.locator('#studentName').fill('首页导航测试');
@@ -224,17 +225,17 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
       assert.ok((await page.locator('#user-chip-btn').textContent()).includes(teacher.name));
       for (const entry of ['batch-new', 'ocr-new']) {
         await page.locator('#' + entry).click(); await page.getByRole('link', { name: '返回首页', exact: true }).click();
-        await page.locator('#dashboard').waitFor({ state: 'visible' }); assert.equal(await page.locator('#app-version').textContent(), 'v0.4');
+        await page.locator('#dashboard').waitFor({ state: 'visible' }); assert.equal(await page.locator('#app-version').textContent(), 'v0.5');
       }
-      await page.screenshot({ path: '/tmp/sfk-home-v0.4-desktop.png', fullPage: true });
+      await page.screenshot({ path: '/tmp/sfk-home-v0.5-desktop.png', fullPage: true });
       await page.setViewportSize({ width: 375, height: 812 });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       assert.equal(await page.locator('#app-version').isVisible(), true);
-      await page.screenshot({ path: '/tmp/sfk-home-v0.4-mobile.png', fullPage: true });
+      await page.screenshot({ path: '/tmp/sfk-home-v0.5-mobile.png', fullPage: true });
       const shared = f.row('home-student', record('学生首页测试')); shared.share_token = token; f.db.set(shared.id, shared);
       await page.goto(origin + '/#request=' + token); await page.reload(); await page.locator('main.layout').waitFor({ state: 'visible' });
       await page.getByRole('link', { name: '返回首页', exact: true }).click(); await page.locator('#user-select').waitFor({ state: 'visible' });
-      assert.equal(new URL(page.url()).hash, ''); assert.equal(await page.locator('#app-version').textContent(), 'v0.4');
+      assert.equal(new URL(page.url()).hash, ''); assert.equal(await page.locator('#app-version').textContent(), 'v0.5');
       await f.close();
     });
 

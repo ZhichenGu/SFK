@@ -12,7 +12,7 @@ function fixture({key='isolated-key',response,throws=false}={}){
 }
 const input=()=>({studentName:'学生A',lessons:[{studentName:'学生A',courseName:'项目课',content:'开题调研',signatures:'must-not-forward',lessonDate:'2026-10-18'}],options:{progress:'0',pronoun:'她',homework:'画草图'}});
 (async()=>{
- let f=fixture(),res=await f.call(input());assert.equal(res.status,200);assert.equal((await res.json()).text,'🔸课程内容：测试反馈');
+ let f=fixture(),res=await f.call(input());assert.equal(res.status,200);const output=(await res.json()).text;assert.ok(output.includes('🔸课程内容：测试反馈'));for(const title of ['学生姓名','当前项目','当前导师','最新进度百分比','课程内容','最新作业','学生表现','学习建议'])assert.equal(output.split('🔸'+title+'：').length-1,1);
  const request=f.requests[0];assert.equal(request.url,'https://api.deepseek.com/chat/completions');
  assert.equal(request.body.thinking.type,'disabled');assert.equal(request.body.max_tokens,1000);
  const data=JSON.parse(request.body.messages[1].content);assert.equal(data.options.progress,'0');assert.ok(!JSON.stringify(data).includes('must-not-forward'));assert.ok(!JSON.stringify(data).includes('2026-10-18'));

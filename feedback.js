@@ -19,18 +19,18 @@
  function draft({studentName,lessons},options={}){
   const o={...defaults({lessons}),...options};
   const lines=['🔸学生姓名：'+studentName];
-  if(text(o.project))lines.push('🔸当前项目：'+text(o.project));
-  if(text(o.teacherName))lines.push('🔸当前导师：'+text(o.teacherName));
+  lines.push('🔸当前项目：'+text(o.project));
+  lines.push('🔸当前导师：'+text(o.teacherName));
   if(text(o.progress)){
    const n=Number(o.progress);
    if(!Number.isFinite(n)||n<0||n>100)throw Error('学生进度请填写 0–100 之间的数值。');
    lines.push('🔸最新进度百分比：'+n+'%');
-  }
+  }else lines.push('🔸最新进度百分比：');
   const contents=[...new Set(lessons.map(r=>r.content).filter(Boolean))];
-  if(contents.length)lines.push('🔸课程内容：'+contents.join('；'));
-  if(text(o.homework))lines.push('🔸最新作业：'+text(o.homework));
-  if(text(o.observation))lines.push('🔸学生表现：'+text(o.observation));
-  if(text(o.advice))lines.push('🔸学习建议：建议'+(['他','她'].includes(o.pronoun)?o.pronoun:'学生')+'：'+text(o.advice));
+  lines.push('🔸课程内容：'+contents.join('；'));
+  lines.push('🔸最新作业：'+text(o.homework));
+  lines.push('🔸学生表现：'+text(o.observation));
+  lines.push('🔸学习建议：'+(text(o.advice)?'建议'+(['他','她'].includes(o.pronoun)?o.pronoun:'学生')+'：'+text(o.advice):''));
   return lines.join('\n');
  }
  const style=document.createElement('style');style.textContent=`
