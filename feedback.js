@@ -53,7 +53,7 @@
  <label><span>当前项目（选填）</span><input id="feedback-project" maxlength="200" placeholder="例如：项目一 · 对视"></label>
  <label class="wide"><span>本次作业（可调整）</span><textarea id="feedback-homework" placeholder="填写本次需要反馈的作业"></textarea><small id="feedback-homework-hint"></small></label>
  <label class="wide"><span>课堂表现补充（选填）</span><textarea id="feedback-observation" placeholder="填写实际观察，例如：能根据测试结果调整结构。"></textarea><small>仅填写真实表现，不会自动补写评价。</small></label>
- <label class="wide"><span>学习建议（选填）</span><textarea id="feedback-advice" placeholder="例如：先梳理主要问题，再逐项测试。"></textarea><small>与作业分开；没有具体建议可留空。</small></label>
+ <label class="wide"><span>学习建议（选填）</span><textarea id="feedback-advice" placeholder="例如：先梳理主要问题，再逐项测试。"></textarea><small>与作业分开，可补充一句简短鼓励；留空时由 AI 根据课程提出建议。</small></label>
  <div class="actions wide"><button type="button" id="feedback-template">使用本地模板（免费）</button><button type="submit" id="feedback-generate" class="primary">AI 生成反馈</button></div></form>
  <div id="feedback-result" hidden><label for="feedback-text">反馈正文（可直接修改）</label><textarea id="feedback-text"></textarea>
  <div class="actions"><button type="button" id="feedback-back">返回调整信息</button><button type="button" class="primary" id="feedback-copy">复制反馈</button></div></div><p id="feedback-status" class="hint" role="status"></p>`;
