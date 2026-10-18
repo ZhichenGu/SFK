@@ -33,7 +33,7 @@ window.SFKUser=(()=>{
   chip.append(chipBtn);
   const header=document.querySelector('header');if(header)header.append(chip);
 
-  function updateChip(){if(_active){chip.style.display='';chipBtn.textContent=(_current?_current.name:'访客')+' ▾';}else{chip.style.display='none';}}
+  function updateChip(){if(_active){chip.style.display='';chipBtn.textContent=(_current?_current.name:'访客')+' ▾';chipBtn.title=(_current?_current.name:'访客')+' · 切换用户';}else{chip.style.display='none';}}
 
   const view=document.createElement('main');view.id='user-select';view.className='user-select';view.hidden=true;
   view.innerHTML='<div class="us-card"><h2>选择使用身份</h2><p class="us-sub">选择你的名字进入个人工作台（只看自己的签单）；或使用访客模式自由填写。</p><div id="us-recent"></div><div class="us-section-label">全部老师</div><div id="us-list"></div><div class="us-add"><input id="us-name" maxlength="24" placeholder="新老师姓名"><button type="button" id="us-add-btn">＋ Add User</button></div><button type="button" class="us-guest" id="us-guest">访客模式 · 自由填写</button><p class="us-status" id="us-status" role="status"></p></div>';

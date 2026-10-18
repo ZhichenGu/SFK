@@ -89,6 +89,32 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
     }
     async function test(name, run) { await run(); console.log('PASS', name); }
 
+    await test('首页教程入口可用，四类页面在手机和桌面无横向溢出，批量详情按需展开', async () => {
+      const f = await fixture(), { page } = f; f.db.set('ui-record', f.row('ui-record', record('Alexandra Samantha Montgomery'))); await f.home();
+      async function checkWidths() {
+        for (const width of [320, 375, 900, 1440]) {
+          await page.setViewportSize({ width, height: 900 });
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'overflow at ' + width);
+        }
+      }
+      await page.locator('#record-list .record-card').waitFor(); await checkWidths();
+      await page.setViewportSize({ width: 375, height: 812 });
+      assert.equal(await page.locator('header .mobile-preview').isVisible(), false);
+      await page.locator('#guide-new-record').click(); await page.locator('main.layout').waitFor({ state: 'visible' });
+      assert.equal(await page.locator('header .mobile-preview').isVisible(), true); await checkWidths();
+      await page.locator('#home-link').click(); await page.locator('#guide-batch-new').click(); await page.locator('#batch-view').waitFor({ state: 'visible' });
+      const more = page.locator('.batch-row .ops').getByRole('button', { name: '更多', exact: true });
+      assert.equal(await page.locator('.batch-row .batch-sub').isVisible(), false);
+      await more.click(); assert.equal(await page.locator('.batch-row .batch-sub').isVisible(), true);
+      assert.equal(await page.locator('.batch-row .ops').getByRole('button', { name: '收起', exact: true }).getAttribute('aria-expanded'), 'true'); await checkWidths();
+      await page.locator('#home-link').click(); await page.locator('#ocr-new').click();
+      await page.locator('#ocr-file').setInputFiles({ name: 'ui.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64') });
+      await page.locator('#ocr-recognize').click(); await page.locator('#ocr-next').click();
+      await page.locator('.ocr-content-row').waitFor(); await checkWidths();
+      assert.ok(await page.locator('.ocr-content-row > .cell').first().evaluate(el => el.getBoundingClientRect().width >= 160));
+      await f.close();
+    });
+
     await test('品牌入口始终可返回首页，保留当前教师与编辑内容，版本号不随页面标题消失', async () => {
       const f = await fixture(), { page } = f;
       await page.goto(origin); assert.equal(await page.locator('#app-version').textContent(), 'v0');

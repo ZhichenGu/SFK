@@ -17,6 +17,11 @@ window.SFKBatch=(()=>{
 
   const style=document.createElement('style');
   style.textContent='.batch-view{max-width:1428px;margin:30px auto;padding:0 24px}.batch-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}.batch-bar h2{margin:0}.batch-defaults{display:grid;grid-template-columns:150px 160px 120px 120px minmax(180px,1fr);gap:12px;align-items:end;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:18px}.batch-defaults label{display:block;font-size:13px;color:#69748a;margin-bottom:6px}.batch-defaults select,.batch-defaults input{width:100%}.batch-defaults .mentor-note{grid-column:1/-1;font-size:12px;color:#69748a}.batch-list{margin-bottom:18px}.batch-head{display:grid;grid-template-columns:160px 1fr 1fr 190px;gap:10px;padding:0 4px 8px;color:#69748a;font-size:13px}.batch-row{display:grid;grid-template-columns:160px 1fr 1fr 190px;gap:10px;align-items:start;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px}.batch-row.done{border-color:#9fe1cb}.batch-row select,.batch-row input{width:100%}.cell-time{display:grid;grid-template-columns:1fr 1fr;gap:6px}.cell-text{width:100%;resize:none;overflow:hidden;min-height:46px;height:46px;transition:height .15s}.cell-text:focus{height:120px;overflow:auto}.batch-sub{grid-column:1/-1;display:none;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;border-top:1px dashed var(--line);padding-top:12px}.batch-sub .cell::before{content:attr(data-label);display:block;font-size:12px;color:#69748a;margin-bottom:4px}.batch-row.expanded .batch-sub{display:grid}.cell.ops{display:flex;flex-wrap:wrap;gap:6px;align-content:start}.cell.ops button{min-height:32px;padding:4px 8px;font-size:12px}.row-link{margin-top:8px;font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%}.row-link a{color:var(--blue);word-break:break-all}.batch-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:16px}.batch-status{color:#69748a;font-size:14px;line-height:1.6}.batch-empty{padding:28px;text-align:center;color:#69748a}.row-error{color:#a52626;font-size:12px}.batch-pager{display:none;align-items:center;gap:10px;margin-bottom:12px}.batch-pager button{min-height:40px;padding:0 14px}.batch-mobilebar{display:none;position:fixed;left:0;right:0;bottom:0;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--line);z-index:20;gap:10px}.batch-mobilebar button{flex:1;min-height:46px}@media(max-width:820px){.batch-view{padding:0 14px 90px;margin-top:16px}.batch-head{display:none}.batch-defaults{grid-template-columns:1fr 1fr}.batch-defaults .mentor{grid-column:1/-1}.batch-defaults .mentor-note{grid-column:1/-1}.batch-row{display:flex;flex-direction:column;gap:12px;padding:16px}.cell{padding-left:0}.cell::before{content:attr(data-label);display:block;font-size:12px;color:#69748a;margin-bottom:4px}.cell.ops::before{content:""}.cell.ops{flex-direction:row}.batch-pager{display:flex}.batch-mobilebar{display:flex}}';
+  style.textContent+=`
+  .batch-row>.cell,.batch-defaults>div{min-width:0}.batch-row textarea,.batch-row input,.batch-defaults input,.batch-defaults select{min-width:0}
+  @media(min-width:821px) and (max-width:1000px){.batch-defaults{grid-template-columns:repeat(2,minmax(0,1fr))}.batch-defaults .mentor{grid-column:1/-1}}
+  @media(max-width:820px){.batch-row{align-items:stretch}.batch-row>.cell,.batch-row>.batch-sub{width:100%}.batch-row .cell.ops{flex-direction:row}.batch-defaults{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  `;
   document.head.append(style);
 
   const view=document.createElement('main');
@@ -69,7 +74,7 @@ window.SFKBatch=(()=>{
   function input(val){const i=document.createElement('input');i.value=val||'';return i;}
 
   function renderRow(row,index){
-    const box=el('div','batch-row expanded'+(row.status==='linked'?' done':''));
+    const box=el('div','batch-row'+(row.status==='linked'?' done':''));
     box.dataset.key=row.key;
     const name=input(row.studentName);name.setAttribute('list','batch-names');name.placeholder='姓名';name.autocomplete='off';
     const course=document.createElement('select');course.innerHTML='<option value="">继承默认</option><option value="项目课">项目课</option><option value="基础/软件课">基础/软件课</option>';course.value=row.courseName||'';
@@ -106,7 +111,7 @@ window.SFKBatch=(()=>{
     homework.oninput=()=>{row.homework=homework.value;saveDraft();};
     num.oninput=()=>{row.lessonNumber=num.value;saveDraft();};
     prev.onchange=()=>{row.previousHomework=prev.value||null;saveDraft();};
-    more.onclick=()=>{box.classList.toggle('expanded');};
+    more.setAttribute('aria-expanded','false');more.onclick=()=>{const expanded=box.classList.toggle('expanded');more.setAttribute('aria-expanded',String(expanded));more.textContent=expanded?'收起':'更多';};
     reuse.onclick=async()=>{reuse.disabled=true;try{await reuseLast(row);}catch(e){status(e.message);}finally{reuse.disabled=false;}};
     dup.onclick=()=>{if(index>0){const p=rows[index-1];row.courseName=p.courseName;row.lessonDate=p.lessonDate;row.checkIn=p.checkIn;row.checkOut=p.checkOut;row.lessonNumber=p.lessonNumber;row.content=p.content;row.homework=p.homework;row.previousHomework=p.previousHomework;draw();saveDraft();}};
     del.onclick=()=>{rows.splice(index,1);if(pageIndex>=rows.length)pageIndex=Math.max(0,rows.length-1);draw();saveDraft();};
