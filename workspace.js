@@ -9,7 +9,8 @@
  function readDefaults(){try{const d=JSON.parse(localStorage.getItem(DEFAULTS_KEY)||'null');return d&&typeof d==='object'?d:{};}catch{return{};}}
  function writeDefaults(d){try{localStorage.setItem(DEFAULTS_KEY,JSON.stringify(d));}catch{}}
  function rememberDefaults(courseName,mentor,teacherName){const d=readDefaults();if(courseName)d.courseName=courseName;if(mentor)d.mentor=mentor;if(teacherName)d.teacherName=teacherName;writeDefaults(d);}
- let autosaveTimer=null,autosaving=false;
+ let autosaveTimer=null,autosaving=false,savePromise=null,navigation=0;
+ const teacherId=()=>window.SFKUser?.current()?.id||null;
  const style=document.createElement('style');style.textContent='.workspace{max-width:1428px;margin:30px auto;padding:0 24px}.workspace-bar,.bulk-bar,.save-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:20px}.workspace-tools{display:grid;grid-template-columns:1fr 1fr 150px 150px 180px 180px;gap:12px;margin:20px 0}.record-card{background:white;border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;align-items:center;gap:16px;margin-bottom:12px}.record-info{flex:1;min-width:0}.record-info strong{font-size:18px}.record-info p{margin:8px 0 0;color:#69748a;font-size:14px}.record-state{font-size:14px;padding:7px 10px;border-radius:8px;background:#fff2d8;color:#795214;white-space:nowrap}.record-state.signed{background:#e7f5ed;color:#236444}.workspace input[type=checkbox]{width:22px;min-height:22px;accent-color:var(--blue)}.danger{color:#a52626}.save-bar{justify-content:flex-start}.workspace-message{color:#69748a;font-size:14px;line-height:1.7}@media(max-width:850px){.workspace-tools{grid-template-columns:1fr 1fr}.workspace-tools>input[type=search]{grid-column:1/-1}}@media(max-width:600px){.workspace{padding:0 14px;margin-top:20px}.record-card{padding:16px;flex-wrap:wrap}.record-info{flex-basis:60%}.workspace-bar{align-items:flex-start}.record-card button{flex:1}.workspace-tools{gap:10px}}';document.head.append(style);
  const dashboard=document.createElement('main');dashboard.className='workspace';dashboard.id='dashboard';dashboard.innerHTML=`<div class="workspace-bar"><div><h2>学生签单管理</h2><p class="workspace-message" id="storage-description"></p></div><div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" class="primary" id="new-record">新建签单</button><button type="button" id="batch-new">批量新建</button><button type="button" id="ocr-new">课表识别新建</button></div></div>
  <div class="workspace-tools"><input id="record-search" type="search" aria-label="检索学生姓名" placeholder="检索学生姓名…"><select id="teacher-filter" aria-label="导师"><option value="">全部导师</option></select><input id="date-from" type="date" aria-label="上课日期起始"><input id="date-to" type="date" aria-label="上课日期截止"><select id="record-filter" aria-label="签名状态"><option value="all">全部签名状态</option><option value="pending">待签名</option><option value="signed">已签名</option></select><select id="record-order" aria-label="排列方式"><option value="date-desc">上课时间 · 最近优先</option><option value="date-asc">上课时间 · 最早优先</option><option value="name">学生姓名 · 拼音排序</option></select></div>
@@ -27,16 +28,68 @@
  function filtered(){const q=$('record-search').value.trim().toLocaleLowerCase(),t=$('teacher-filter').value,f=$('record-filter').value,a=$('date-from').value,b=$('date-to').value,o=$('record-order').value;return records.filter(r=>(r.student_name||'').toLocaleLowerCase().includes(q)&&(!t||(r.teacher_name||'')===t)&&(f==='all'||(f==='signed')===!!r.signed_at)&&(!a||r.lesson_date>=a)&&(!b||r.lesson_date<=b)).sort((a,b)=>o==='name'?(a.student_name||'').localeCompare(b.student_name||'','zh-CN'):((a.lesson_date+' '+a.check_in).localeCompare(b.lesson_date+' '+b.check_in))*(o==='date-desc'?-1:1));}
  function count(){const rows=filtered();$('selection-count').textContent='已选 '+selection.size+' 份';$('batch-download').disabled=!selection.size||busy;$('select-all').checked=rows.length>0&&rows.every(r=>selection.has(r.id));$('select-all').indeterminate=rows.some(r=>selection.has(r.id))&&!$('select-all').checked;}
  function drawList(){const list=$('record-list');list.replaceChildren();const rows=filtered();if(!rows.length){const p=document.createElement('p');p.className='section';p.textContent='没有符合条件的签单，可新建签单或调整筛选条件。';list.append(p);}for(const r of rows){const card=document.createElement('article');card.className='record-card';const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=selection.has(r.id);checkbox.setAttribute('aria-label','选择 '+(r.student_name||'未命名学生')+' '+r.lesson_date);checkbox.onchange=()=>{checkbox.checked?selection.add(r.id):selection.delete(r.id);count();};const info=document.createElement('div');info.className='record-info';const name=document.createElement('strong');name.textContent=r.student_name||'未填写学生姓名';const desc=document.createElement('p');desc.textContent=[r.course_name,r.lesson_date,r.check_in].filter(Boolean).join(' · ');info.append(name,desc);const status=document.createElement('span');status.className='record-state'+(r.signed_at?' signed':'');status.textContent=r.signed_at?'已签名':'待签名';const open=document.createElement('button');open.type='button';open.textContent=r.signed_at?'查看签单':'继续填写';open.onclick=()=>openRecord(r.id);const remove=document.createElement('button');remove.type='button';remove.className='danger';remove.textContent='删除';remove.onclick=async()=>{if(!confirm('删除 '+(r.student_name||'未命名学生')+' · '+r.lesson_date+' 的签单？\n记录和签名将永久删除，已有签名链接失效。'))return;remove.disabled=true;try{await repository.remove(r.id);selection.delete(r.id);await refresh();$('workspace-status').textContent='签单已删除。';}catch(e){$('workspace-status').textContent=e.message;remove.disabled=false;}};card.append(checkbox,info,status,open,remove);list.append(card);}count();}
- async function refresh(force=false){if(refreshing||(!force&&busy))return;refreshing=true;try{records=await repository.list(window.SFKUser&&SFKUser.current()?SFKUser.current().id:null);const tsel=$('teacher-filter'),cur=tsel.value,names=[...new Set(records.map(r=>(r.teacher_name||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-CN')),key=names.join('\u0001');if(key!==teacherNames){teacherNames=key;tsel.replaceChildren(new Option('全部导师',''),...names.map(n=>new Option(n,n)));}tsel.value=names.includes(cur)?cur:'';selection=new Set([...selection].filter(id=>records.some(r=>r.id===id)));drawList();if(active&&!main.hidden){const meta=records.find(r=>r.id===active.id);if(meta&&meta.revision!==active.revision){if(snapshot()!==baseline){$('save-status').textContent='云端已有更新；请先保存当前内容，系统会检查冲突，不会覆盖学生签名。';}else{const current=await repository.get(active.id);SFKEditor.load(current.record);active=current;baseline=snapshot();$('save-status').textContent='学生签名 / 云端记录已更新';}}}}catch(e){$('workspace-status').textContent='刷新失败：'+e.message;}finally{refreshing=false;}}
+ async function refresh(force=false){
+  if(refreshing||(!force&&(busy||savePromise)))return;
+  refreshing=true;const user=teacherId(),route=navigation;
+  try{
+   const latest=await repository.list(user);
+   if(user!==teacherId()||route!==navigation)return;
+   records=latest;const tsel=$('teacher-filter'),cur=tsel.value,names=[...new Set(records.map(r=>(r.teacher_name||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-CN')),key=names.join('\u0001');
+   if(key!==teacherNames){teacherNames=key;tsel.replaceChildren(new Option('全部导师',''),...names.map(n=>new Option(n,n)));}tsel.value=names.includes(cur)?cur:'';
+   selection=new Set([...selection].filter(id=>records.some(r=>r.id===id)));drawList();
+   const target=active,meta=target&&records.find(r=>r.id===target.id);
+   if(target&&!main.hidden&&!savePromise&&meta&&meta.revision!==target.revision){
+    if(snapshot()!==baseline)saveStatus('云端已有更新；请重新打开记录核对，当前内容尚未保存。');
+    else{const before=snapshot(),current=await repository.get(target.id);
+     if(active===target&&route===navigation&&!main.hidden&&!savePromise&&snapshot()===before){SFKEditor.load(current.record);active=current;baseline=snapshot();saveStatus('学生签名 / 云端记录已更新');}
+    }
+   }
+  }catch(e){$('workspace-status').textContent='刷新失败：'+e.message;}finally{refreshing=false;}
+ }
  function setTeacherState(){$('new-record').disabled=false;const u=window.SFKUser&&SFKUser.current();const who=u?('当前：'+u.name+' · 只看自己的签单'):'访客模式 · 可查看全部签单';$('storage-description').textContent=(cloud?'云端保存':'本地预览')+' · '+who+' · 页面可见时每 15 秒更新签名状态。';}
- async function showDashboard(){active=null;main.hidden=true;dashboard.hidden=false;if(window.SFKBatch&&SFKBatch.view)SFKBatch.view.hidden=true;if(window.SFKUser&&SFKUser.view)SFKUser.view.hidden=true;if(window.SFKOCR&&SFKOCR.view)SFKOCR.view.hidden=true;history.replaceState(null,'',location.pathname+location.search);document.querySelector('h1').textContent='教学工作台';setTeacherState();await refresh(true);window.scrollTo(0,0);}
- async function openRecord(id){if(busy)return;try{if(window.SFKBatch&&SFKBatch.view)SFKBatch.view.hidden=true;if(window.SFKOCR&&SFKOCR.view)SFKOCR.view.hidden=true;active=id?await repository.get(id):(function(){const rec={...initialRecord(),studentName:''};const d=readDefaults();const u=window.SFKUser&&SFKUser.current();if(d.courseName)rec.courseName=d.courseName;if(u){rec.teacherName=u.name;rec.signatures.mentor={mode:'text',text:u.name,image:null,strokes:[],loading:false,revision:0};}else{if(d.mentor)rec.signatures.mentor=d.mentor;if(d.teacherName)rec.teacherName=d.teacherName;}return {id:crypto.randomUUID(),revision:0,record:rec};})();SFKEditor.load(active.record);baseline=snapshot();dashboard.hidden=true;main.hidden=false;$('share-result').hidden=true;$('share-status').textContent='';$('save-status').textContent=active.revision?'已载入保存的记录':'新签单';document.querySelector('h1').textContent='学生上课签单';history.replaceState(null,'','#edit='+active.id);window.scrollTo(0,0);}catch(e){$('workspace-status').textContent=e.message;}}
- async function save(){if(!active)throw Error('请先打开签单。');saveStatus('保存中…');try{const before=snapshot(),record=await SFKCloud.compactRecord(state);record.teacherName=(state.teacherName||'').trim()||(record.signatures.mentor.text||'').trim();if(before!==snapshot())throw Error('图片处理期间内容有变化，请再次保存。');const result=await repository.save(active.id,active.revision,record,window.SFKUser&&SFKUser.current()?SFKUser.current().id:null);if(active.published)result.published=true;active=result;const curUser=window.SFKUser&&SFKUser.current();rememberDefaults(record.courseName,curUser?null:(signaturePresent(record.signatures.mentor)?record.signatures.mentor:null),curUser?null:record.teacherName);if(before===snapshot()){SFKEditor.load(result.record);baseline=snapshot();}saveStatus(cloud?'已保存 · 云端':'已保存 · 本机');return result;}catch(e){saveStatus('保存失败：'+e.message);throw e;}}
- async function action(fn){if(busy)return;busy=true;$('save-record').disabled=true;$('generate-share').disabled=true;try{await fn();}catch(e){$('share-status').textContent=e.message;}finally{busy=false;$('save-record').disabled=false;$('generate-share').disabled=false;count();}}
+ async function showDashboard(){if(!await beforeNavigate())return;navigation++;clearTimeout(autosaveTimer);active=null;main.hidden=true;dashboard.hidden=false;if(window.SFKBatch&&SFKBatch.view)SFKBatch.view.hidden=true;if(window.SFKUser&&SFKUser.view)SFKUser.view.hidden=true;if(window.SFKOCR&&SFKOCR.view)SFKOCR.view.hidden=true;history.replaceState(null,'',location.pathname+location.search);document.querySelector('h1').textContent='教学工作台';setTeacherState();await refresh(true);window.scrollTo(0,0);}
+ async function openRecord(id){if(busy||!await beforeNavigate())return;const route=++navigation;try{if(window.SFKBatch&&SFKBatch.view)SFKBatch.view.hidden=true;if(window.SFKOCR&&SFKOCR.view)SFKOCR.view.hidden=true;const opened=id?await repository.get(id):(function(){const rec={...initialRecord(),studentName:''};const d=readDefaults();const u=window.SFKUser&&SFKUser.current();if(d.courseName)rec.courseName=d.courseName;if(u){rec.teacherName=u.name;rec.signatures.mentor={mode:'text',text:u.name,image:null,strokes:[],loading:false,revision:0};}else{if(d.mentor)rec.signatures.mentor=d.mentor;if(d.teacherName)rec.teacherName=d.teacherName;}return {id:crypto.randomUUID(),revision:0,record:rec};})();if(route!==navigation)return;active=opened;SFKEditor.load(active.record);baseline=snapshot();dashboard.hidden=true;main.hidden=false;$('share-result').hidden=true;$('share-status').textContent='';$('save-status').textContent=active.revision?'已载入保存的记录':'新签单';document.querySelector('h1').textContent='学生上课签单';history.replaceState(null,'','#edit='+active.id);window.scrollTo(0,0);}catch(e){$('workspace-status').textContent=e.message;}}
+ function save(){
+  if(savePromise)return savePromise;
+  if(!active)return Promise.reject(Error('请先打开签单。'));
+  if(active.revision&&snapshot()===baseline)return Promise.resolve(active);
+  const target=active,user=teacherId(),before=snapshot(),input=JSON.parse(before);
+  saveStatus('保存中…');
+  savePromise=(async()=>{
+   try{
+    const record=await SFKCloud.compactRecord(input);
+    record.teacherName=(input.teacherName||'').trim()||(record.signatures.mentor.text||'').trim();
+    const result=await repository.save(target.id,target.revision,record,user);
+    // Keep published records on manual save until their state is reloaded.
+    result.published=!!target.published;
+    if(active===target){
+     active=result;
+     rememberDefaults(record.courseName,user?null:(signaturePresent(record.signatures.mentor)?record.signatures.mentor:null),user?null:record.teacherName);
+     if(before===snapshot()){SFKEditor.load(result.record);baseline=snapshot();saveStatus(cloud?'已保存 · 云端':'已保存 · 本机');}
+     else{baseline=before;saveStatus('此前内容已保存，当前修改未保存');}
+    }
+    return result;
+   }catch(e){if(active===target)saveStatus('保存失败：'+e.message);throw e;}
+  })().finally(()=>{savePromise=null;});
+  return savePromise;
+ }
+ async function beforeNavigate(){
+  if(busy||window.SFKBatch?.isBusy?.()||window.SFKOCR?.isBusy?.()){saveStatus('操作进行中，请完成后再切换。');return false;}
+  clearTimeout(autosaveTimer);
+  try{
+   if(savePromise)await savePromise;
+   if(active&&!main.hidden&&snapshot()!==baseline)await save();
+   if(active&&!main.hidden&&snapshot()!==baseline)throw Error('保存期间又有修改，请稍后再切换。');
+   navigation++; // Invalidate any record-open or polling response started before this navigation.
+   return true;
+  }catch(e){saveStatus('暂未切换：'+e.message);return false;}
+ }
+ window.SFKBeforeNavigate=beforeNavigate;
+ async function action(fn){if(busy)return;busy=true;$('save-record').disabled=true;$('generate-share').disabled=true;try{if(savePromise)await savePromise;await fn();}catch(e){$('share-status').textContent=e.message;}finally{busy=false;$('save-record').disabled=false;$('generate-share').disabled=false;count();}}
  $('save-record').onclick=()=>action(save);
- $('back-workspace').onclick=()=>action(async()=>{if(snapshot()!==baseline)await save();await showDashboard();});
+ $('back-workspace').onclick=()=>showDashboard();
  $('new-record').onclick=()=>openRecord(null);
- $('generate-share').onclick=()=>action(async()=>{if(!cloud)throw Error('当前是本地预览，请先配置 Supabase 后生成学生签名链接。');render();const {errors,missing}=validateExport();if(errors.length)throw Error(errors.join('；'));if(!state.studentName.trim())throw Error('请填写学生姓名，方便签名后查找记录。');const result=await save();const share=await SFKCloud.publish(result.id);active.published=true;const base=new URL(SFK_CONFIG.siteUrl);if(base.protocol!=='https:')throw Error('请在 config.js 配置学生可访问的 HTTPS 网站地址。');base.hash='request='+share.token;base.search='';$('share-url').value=base.href;$('open-share').href=base.href;$('share-result').hidden=false;$('share-status').textContent='签名链接已生成，可复制发给学生。'+(missing.filter(s=>s!=='学生签名').length?'未填字段已保留为空。':'');});
+ $('generate-share').onclick=()=>action(async()=>{if(!cloud)throw Error('当前是本地预览，请先配置 Supabase 后生成学生签名链接。');render();const {errors,missing}=validateExport();if(errors.length)throw Error(errors.join('；'));if(!state.studentName.trim())throw Error('请填写学生姓名，方便签名后查找记录。');const result=await save();const share=await SFKCloud.publish(result.id);if(active?.id!==result.id)return;active.published=true;const base=new URL(SFK_CONFIG.siteUrl);if(base.protocol!=='https:')throw Error('请在 config.js 配置学生可访问的 HTTPS 网站地址。');base.hash='request='+share.token;base.search='';$('share-url').value=base.href;$('open-share').href=base.href;$('share-result').hidden=false;$('share-status').textContent='签名链接已生成，可复制发给学生。'+(missing.filter(s=>s!=='学生签名').length?'未填字段已保留为空。':'');});
  form.addEventListener('input',()=>{$('share-result').hidden=true;});form.addEventListener('change',()=>{$('share-result').hidden=true;});
  for(const id of ['record-search','teacher-filter','date-from','date-to','record-filter','record-order'])$(id).addEventListener('input',()=>{selection.clear();drawList();});
  $('select-all').onchange=()=>{for(const r of filtered())$('select-all').checked?selection.add(r.id):selection.delete(r.id);drawList();};
@@ -45,10 +98,10 @@
  window.addEventListener('storage',e=>{if(!cloud&&e.key===KEY)refresh();});document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
  if(location.hash.startsWith('#request=')){dashboard.hidden=true;savebar.hidden=true;SFKEditor.studentRoute(location.hash.slice(9));}
  else{window.SFKHasUnsavedChanges=()=>!!active&&snapshot()!==baseline;window.SFKShowDashboard=showDashboard;setInterval(()=>{if(!document.hidden&&window.SFKUser&&SFKUser.isActive())refresh();},15000);}
- $('batch-new').onclick=()=>{if(window.SFKBatch)SFKBatch.show();};
- $('ocr-new').onclick=()=>{if(window.SFKOCR)SFKOCR.show();};
+ $('batch-new').onclick=async()=>{if(await beforeNavigate())window.SFKBatch?.show();};
+ $('ocr-new').onclick=async()=>{if(await beforeNavigate())window.SFKOCR?.show();};
  form.addEventListener('input',scheduleAutosave);form.addEventListener('change',scheduleAutosave);
  function saveStatus(t){$('save-status').textContent=t;}
- function scheduleAutosave(){if(busy||autosaving||!active||active.signed_at||active.published)return;if(snapshot()!==baseline)saveStatus('未保存');clearTimeout(autosaveTimer);autosaveTimer=setTimeout(runAutosave,2000);}
- async function runAutosave(){if(busy||autosaving||!active||active.signed_at||active.published)return;if(snapshot()===baseline)return;autosaving=true;try{await save();}catch(e){}finally{autosaving=false;}}
+ function scheduleAutosave(){if(!active||main.hidden||active.signed_at||active.published)return;if(snapshot()!==baseline)saveStatus('未保存');clearTimeout(autosaveTimer);autosaveTimer=setTimeout(runAutosave,2000);}
+ async function runAutosave(){if(busy||autosaving||!active||main.hidden||active.signed_at||active.published)return;if(snapshot()===baseline)return;autosaving=true;let saved=false;try{await save();saved=true;}catch(e){}finally{autosaving=false;if(saved&&active&&!main.hidden&&snapshot()!==baseline)scheduleAutosave();}}
  })();

@@ -20,9 +20,31 @@ window.SFKEditor=(()=>{
    const data=await SFKCloud.getShared(token);load(SFKCloud.cleanRecord(data.record));window.SFKHasUnsavedChanges=()=>!$('generate-share').disabled&&signaturePresent(state.signatures.student);document.querySelector('h1').textContent='确认课程并签名';document.title='学生签名 · 课程记录';form.prepend(signatures,share);$('sign-title').textContent=state.studentName+' · 学生签名';notes.hidden=true;metadata.hidden=true;mentorSection.hidden=true;document.body.classList.add('student-mode');
    form.querySelectorAll('input,textarea,select,button').forEach(el=>el.disabled=true);const student=$('student-name').closest('fieldset');student.querySelectorAll('input,button').forEach(el=>el.disabled=false);student.querySelector('[data-mode="draw"]').click();$('mentor-name').closest('fieldset').querySelector('canvas').style.pointerEvents='none';$('generate-share').disabled=false;
    $('share-title').textContent='提交给老师';$('generate-share').textContent='确认并提交签名';$('share-help').textContent='请先查看课程记录，确认后签名并提交。老师端将自动更新。';$('share-boundary').textContent='每个链接只接受一次签名；需要重签请联系老师。提交后也可下载签单留存。';notice.textContent='请核对签单中的课程内容和作业，再完成签名。';main.hidden=false;
-   const complete=record=>{signature('student',record.signatures.student);render();const editor=$('student-name').closest('fieldset');editor.querySelectorAll('input,button').forEach(el=>el.disabled=true);editor.querySelector('canvas').style.pointerEvents='none';$('generate-share').disabled=true;$('generate-share').textContent='签名已提交';$('share-status').textContent='老师端已收到签名，你可以下载签单留存。';};
+   const complete=record=>{load(record);const editor=$('student-name').closest('fieldset');editor.querySelectorAll('input,button').forEach(el=>el.disabled=true);editor.querySelector('canvas').style.pointerEvents='none';$('generate-share').disabled=true;$('generate-share').textContent='签名已提交';$('share-status').textContent='老师端已收到签名，你可以下载签单留存。';};
    if(data.signed_at)complete(SFKCloud.cleanRecord(data.record));
-   let submitting=false;$('generate-share').onclick=async()=>{if(submitting)return;submitting=true;$('generate-share').disabled=true;try{if(!signaturePresent(state.signatures.student))throw Error('请先完成你的签名。');const s=await SFKCloud.compactSignature(state.signatures.student);await SFKCloud.submit(token,s);state.signatures.student=s;complete(state);}catch(error){try{const latest=await SFKCloud.getShared(token);if(latest.signed_at){complete(SFKCloud.cleanRecord(latest.record));return;}}catch{}$('share-status').textContent='提交未确认：'+error.message;$('generate-share').disabled=false;}finally{submitting=false;}};
+   let submitting=false,uncertain=false;
+   const studentControls=enabled=>{
+    const editor=$('student-name').closest('fieldset');editor.querySelectorAll('input,button').forEach(el=>el.disabled=!enabled);
+    editor.querySelector('canvas').style.pointerEvents=enabled?'':'none';
+   };
+   $('generate-share').onclick=async()=>{
+    if(submitting||$('generate-share').textContent==='签名已提交')return;
+    submitting=true;$('generate-share').disabled=true;studentControls(false);
+    try{
+     if(uncertain){const latest=await SFKCloud.getShared(token);if(latest.signed_at){complete(SFKCloud.cleanRecord(latest.record));return;}uncertain=false;}
+     if(!signaturePresent(state.signatures.student))throw Error('请先完成你的签名。');
+     const s=await SFKCloud.compactSignature(state.signatures.student);
+     uncertain=true;await SFKCloud.submit(token,s);
+     const latest=await SFKCloud.getShared(token);
+     if(!latest.signed_at)throw Error('服务端尚未确认签名，请重试查询。');
+     complete(SFKCloud.cleanRecord(latest.record));uncertain=false;
+    }catch(error){
+     if(uncertain){try{const latest=await SFKCloud.getShared(token);if(latest.signed_at){complete(SFKCloud.cleanRecord(latest.record));uncertain=false;return;}}catch{}}
+     $('share-status').textContent='提交未确认：'+error.message;
+     $('generate-share').disabled=false;studentControls(true);
+    }finally{submitting=false;}
+   };
+
   }catch(error){notice.textContent='无法打开签名页面：'+error.message;notice.setAttribute('role','alert');document.querySelectorAll('header [data-action]').forEach(el=>el.disabled=true);}
  }
  return {load,signature,studentRoute,fields};

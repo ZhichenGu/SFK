@@ -39,11 +39,29 @@ window.SFKBatch=(()=>{
   function timeOptions(sel,val){let o='';for(let n=0;n<1440;n+=30){const t=clockText(n);o+='<option value="'+t+'"'+(t===val?' selected':'')+'>'+t+'</option>';}sel.innerHTML=o;}
   const isMobile=()=>window.matchMedia('(max-width:820px)').matches;
 
-  function readDraft(){try{const d=JSON.parse(localStorage.getItem(DRAFT)||'null');if(d&&Array.isArray(d.rows)){defaults=Object.assign(defaults,d.defaults||{});rows=d.rows.map(r=>Object.assign(newRow(),r));}}catch{}}
+  function readDraft(){try{const d=JSON.parse(localStorage.getItem(DRAFT)||'null');if(d&&Array.isArray(d.rows)){defaults=Object.assign(defaults,d.defaults||{});rows=d.rows.map(r=>Object.assign(newRow(),r));return true;}}catch{}return false;}
 
   let draftTimer=null;
-  function saveDraft(){clearTimeout(draftTimer);draftTimer=setTimeout(()=>{try{localStorage.setItem(DRAFT,JSON.stringify({defaults,rows:rows.map(r=>({studentName:r.studentName,courseName:r.courseName,lessonDate:r.lessonDate,checkIn:r.checkIn,checkOut:r.checkOut,lessonNumber:r.lessonNumber,content:r.content,homework:r.homework,previousHomework:r.previousHomework}))}));}catch{}},300);}
-
+  function writeDraft(){
+    clearTimeout(draftTimer);
+    localStorage.setItem(DRAFT,JSON.stringify({defaults,rows}));
+  }
+  function saveDraft(){clearTimeout(draftTimer);draftTimer=setTimeout(()=>{try{writeDraft();}catch{status('草稿保存失败，请勿刷新或关闭页面。');}},300);}
+  const sameRecord=(a,b)=>JSON.stringify(cloud.cleanRecord(a))===JSON.stringify(cloud.cleanRecord(b));
+  // Persist intent before sending. A lost response is reconciled using the same ID.
+  async function reconcile(row){
+    if(!row.pending)return;
+    let current;
+    try{current=await repo.get(row.id);}catch(e){
+      if(row.pending.revision===0&&/^(没有找到这份签单。|没有找到签单)$/.test(e.message)){row.pending=null;writeDraft();return;}
+      throw Error('无法确认上次保存结果：'+e.message);
+    }
+    if(current.revision===row.pending.revision+1&&sameRecord(current.record,row.pending.record)){
+      row.revision=current.revision;row.savedRecord=current.record;row.pending=null;writeDraft();return;
+    }
+    if(current.revision===row.pending.revision){row.pending=null;writeDraft();return;}
+    throw Error('记录已被更新，请从管理页核对；已保留草稿，不会覆盖或新建重复签单。');
+  }
   function buildMentor(){const d=defaults.mentor;if(d&&signaturePresent(d)&&d.mode==='image')return d;const text=$('b-mentor').value.trim();return text?{mode:'text',text,image:null,strokes:[],loading:false,revision:0}:blankSignature();}
   function buildRecord(row){const rec=initialRecord();rec.studentName=row.studentName.trim();rec.courseName=row.courseName||defaults.courseName;rec.lessonDate=row.lessonDate||defaults.lessonDate;rec.lessonNumber=row.lessonNumber||'';rec.checkIn=row.checkIn||defaults.checkIn;rec.checkOut=row.checkOut||defaults.checkOut;rec.content=row.content;rec.homework=row.homework;rec.previousHomework=row.previousHomework||null;rec.teacherName=$('b-mentor').value.trim();rec.signatures.mentor=buildMentor();rec.signatures.student=blankSignature();return rec;}
 
@@ -78,6 +96,7 @@ window.SFKBatch=(()=>{
     const cells=[[name,'学生'],[content,'上课内容'],[homework,'课后作业'],[ops,'操作']];
     cells.forEach(([control,label])=>{const c=el('div','cell',label);c.append(control);box.append(c);});
     box.append(sub);
+    if(generating)box.querySelectorAll('input,textarea,select,button').forEach(e=>e.disabled=true);
     name.oninput=()=>{row.studentName=name.value;saveDraft();};
     course.onchange=()=>{row.courseName=course.value;saveDraft();};
     date.onchange=()=>{row.lessonDate=date.value;saveDraft();};
@@ -89,8 +108,8 @@ window.SFKBatch=(()=>{
     prev.onchange=()=>{row.previousHomework=prev.value||null;saveDraft();};
     more.onclick=()=>{box.classList.toggle('expanded');};
     reuse.onclick=async()=>{reuse.disabled=true;try{await reuseLast(row);}catch(e){status(e.message);}finally{reuse.disabled=false;}};
-    dup.onclick=()=>{if(index>0){const p=rows[index-1];row.courseName=p.courseName;row.lessonDate=p.lessonDate;row.checkIn=p.checkIn;row.checkOut=p.checkOut;row.lessonNumber=p.lessonNumber;row.content=p.content;row.homework=p.homework;row.previousHomework=p.previousHomework;draw();}};
-    del.onclick=()=>{rows.splice(index,1);if(pageIndex>=rows.length)pageIndex=Math.max(0,rows.length-1);draw();};
+    dup.onclick=()=>{if(index>0){const p=rows[index-1];row.courseName=p.courseName;row.lessonDate=p.lessonDate;row.checkIn=p.checkIn;row.checkOut=p.checkOut;row.lessonNumber=p.lessonNumber;row.content=p.content;row.homework=p.homework;row.previousHomework=p.previousHomework;draw();saveDraft();}};
+    del.onclick=()=>{rows.splice(index,1);if(pageIndex>=rows.length)pageIndex=Math.max(0,rows.length-1);draw();saveDraft();};
     return box;
   }
   function span(cls,txt){const s=document.createElement('span');s.className=cls;s.textContent=txt;return s;}
@@ -105,47 +124,59 @@ window.SFKBatch=(()=>{
 
   async function loadNames(){try{const meta=await repo.list();$('batch-names').replaceChildren(...[...new Set(meta.map(r=>(r.student_name||'').trim()).filter(Boolean))].map(n=>{const o=document.createElement('option');o.value=n;return o;}));}catch{}}
 
+  function generationControls(){
+    ['batch-generate','batch-generate2','batch-add','pg-add','batch-back','b-course','b-date','b-in','b-out','b-mentor'].forEach(id=>$(id).disabled=generating);
+  }
   async function generate(){
-    if(generating)return;generating=true;$('batch-generate').disabled=true;$('batch-generate2').disabled=true;$('batch-add').disabled=true;$('pg-add').disabled=true;
+    if(generating)return;
     const target=rows.filter(r=>r.studentName.trim());
-    if(!target.length){status('请至少填写一名学生姓名。');generating=false;$('batch-generate').disabled=false;$('batch-generate2').disabled=false;$('batch-add').disabled=false;$('pg-add').disabled=false;return;}
+    if(!target.length){status('请至少填写一名学生姓名。');return;}
+    generating=true;generationControls();
+    const teacher=window.SFKUser?.current()?.id||null;
     let ok=0,fail=[];
-    for(const row of rows){row.status='new';row.error='';}
-    draw();
-    for(let i=0;i<rows.length;i++){
-      const row=rows[i];if(!row.studentName.trim())continue;
-      status('正在保存 '+(i+1)+' / '+rows.length+' …');
-      try{
-        const record=await cloud.compactRecord(buildRecord(row));if(!record.teacherName)record.teacherName=(record.signatures.mentor.text||'').trim();
-        row.id=row.id||crypto.randomUUID();
-        const saved=await repo.save(row.id,row.revision||0,record,window.SFKUser&&SFKUser.current()?SFKUser.current().id:null);
-        row.id=saved.id;row.revision=saved.revision;
-        if(cloud.configured){
-          const share=await cloud.publish(saved.id);
-          const base=new URL(window.SFK_CONFIG.siteUrl);base.hash='request='+share.token;base.search='';
-          row.link=base.href;
-        }
-        row.status='linked';ok++;
-      }catch(e){row.status='error';row.error=e.message;fail.push((row.studentName||'未命名')+'：'+e.message);}
-      draw();
-    }
-    D.remember(defaults.courseName,(window.SFKUser&&SFKUser.current())?null:buildMentor(),(window.SFKUser&&SFKUser.current())?null:$('b-mentor').value.trim());
-    status('已生成 '+ok+' 份'+(fail.length?'；失败 '+fail.length+' 份：'+fail.join('；'):'')+(cloud.configured?'':'（本地预览模式，未生成链接）'));
-    $('batch-exportall').hidden=!(ok&&cloud.configured);
-    try{localStorage.removeItem(DRAFT);}catch{}
-    generating=false;$('batch-generate').disabled=false;$('batch-generate2').disabled=false;$('batch-add').disabled=false;$('pg-add').disabled=false;
+    try{
+      writeDraft();draw();
+      for(let i=0;i<target.length;i++){
+        const row=target[i];status('正在保存 '+(i+1)+' / '+target.length+' …');
+        try{
+          await reconcile(row);
+          const record=await cloud.compactRecord(buildRecord(row));
+          if(!record.teacherName)record.teacherName=(record.signatures.mentor.text||'').trim();
+          // A linked row with unchanged input is already complete, including on retry.
+          if(!(row.savedRecord&&sameRecord(row.savedRecord,record))){
+            row.id=row.id||crypto.randomUUID();row.link='';row.copied=false;
+            row.pending={revision:row.revision||0,record,teacherId:teacher};writeDraft();
+            const saved=await repo.save(row.id,row.pending.revision,record,teacher);
+            row.id=saved.id;row.revision=saved.revision;row.savedRecord=saved.record;row.pending=null;
+            writeDraft();
+          }
+          if(cloud.configured&&!row.link){
+            const base=new URL(window.SFK_CONFIG.siteUrl);
+            if(base.protocol!=='https:')throw Error('请配置学生可访问的 HTTPS 网站地址。');
+            const share=await cloud.publish(row.id);base.hash='request='+share.token;base.search='';row.link=base.href;
+          }
+          row.status='linked';row.error='';ok++;writeDraft();
+        }catch(e){row.status='error';row.error=e.message;fail.push(row.studentName+'：'+e.message);try{writeDraft();}catch{throw Error('草稿保存失败，请勿刷新或关闭页面。');}}
+        draw();
+      }
+      D.remember(defaults.courseName,teacher?null:buildMentor(),teacher?null:$('b-mentor').value.trim());
+      status('已完成 '+ok+' 份'+(fail.length?'；失败 '+fail.length+' 份：'+fail.join('；'):'')+(cloud.configured?'':'（本地预览模式，未生成链接）'));
+      $('batch-exportall').hidden=!rows.some(r=>r.link);
+      if(rows.every(r=>r.status==='linked')){clearTimeout(draftTimer);localStorage.removeItem(DRAFT);}else writeDraft();
+    }catch(e){status('生成未完成：'+e.message);}
+    finally{generating=false;generationControls();draw();}
   }
 
   function show(){
-    readDraft();
+    const restored=readDraft();
     const init=initialRecord();
     if(!defaults.lessonDate)defaults.lessonDate=init.lessonDate;
     if(!defaults.checkIn)defaults.checkIn=init.checkIn;
     if(!defaults.checkOut)defaults.checkOut=init.checkOut;
     const d=D.read();
-    if(d.courseName)defaults.courseName=d.courseName;
-    defaults.mentor=d.mentor||null;
-    defaults.teacherName=d.teacherName||(d.mentor&&d.mentor.mode==='text'&&d.mentor.text)||'';if(window.SFKUser&&SFKUser.current()){defaults.teacherName=SFKUser.current().name;defaults.mentor=null;}
+    if(!restored&&d.courseName)defaults.courseName=d.courseName;
+    defaults.mentor=defaults.mentor||d.mentor||null;
+    defaults.teacherName=defaults.teacherName||d.teacherName||(d.mentor&&d.mentor.mode==='text'&&d.mentor.text)||'';if(!restored&&window.SFKUser&&SFKUser.current()){defaults.teacherName=SFKUser.current().name;defaults.mentor=null;}
     $('b-course').value=defaults.courseName;
     $('b-date').value=defaults.lessonDate;
     timeOptions($('b-in'),defaults.checkIn);timeOptions($('b-out'),defaults.checkOut);
@@ -158,6 +189,7 @@ window.SFKBatch=(()=>{
     const dash=document.getElementById('dashboard');if(dash)dash.hidden=true;if(window.SFKOCR&&SFKOCR.view)SFKOCR.view.hidden=true;
     view.hidden=false;
     document.querySelector('h1').textContent='批量新建签单';
+    $('batch-exportall').hidden=!rows.some(r=>r.link);
     draw();loadNames();status(cloud.configured?'':'本地预览：记录保存在此浏览器，无法生成远程链接。');
     window.scrollTo(0,0);
   }
@@ -178,5 +210,5 @@ window.SFKBatch=(()=>{
   $('b-mentor').oninput=()=>{defaults.teacherName=$('b-mentor').value;saveDraft();};
   window.addEventListener('resize',applyPager);
 
-  return {show,hide,view};
+  return {show,hide,view,isBusy:()=>generating};
 })();

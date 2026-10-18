@@ -47,6 +47,7 @@ window.SFKUser=(()=>{
   }
 
   async function showSelect(){
+    if(window.SFKBeforeNavigate&&!await SFKBeforeNavigate())return;
     view.hidden=false;
     const dash=document.getElementById('dashboard');if(dash)dash.hidden=true;
     document.querySelector('main.layout').hidden=true;

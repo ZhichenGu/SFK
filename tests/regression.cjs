@@ -1,0 +1,225 @@
+// Run with Playwright available in NODE_PATH. All API calls use an isolated mock.
+const { chromium } = require('playwright');
+const assert = require('node:assert/strict');
+const http = require('node:http');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const root = path.resolve(__dirname, '..');
+const clone = value => JSON.parse(JSON.stringify(value));
+const deferred = () => { let resolve; const promise = new Promise(r => resolve = r); return { promise, resolve }; };
+const token = '10000000-0000-4000-8000-000000000001';
+const teacher = { id: '20000000-0000-4000-8000-000000000001', name: '测试导师' };
+const blank = () => ({ mode: 'text', text: '', image: null, strokes: [], loading: false, revision: 0 });
+const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate: '2026-10-18', lessonNumber: '', checkIn: '10:00', checkOut: '11:00', content: '测试内容', homework: '', previousHomework: null, teacherName: '', signatures: { student: blank(), mentor: blank() }, studentName: name });
+
+(async () => {
+  const server = http.createServer(async (req, res) => {
+    const filename = path.resolve(root, '.' + new URL(req.url, 'http://localhost').pathname.replace(/\/$/, '/index.html'));
+    if (!filename.startsWith(root + path.sep)) { res.writeHead(403).end(); return; }
+    try {
+      const data = await fs.readFile(filename);
+      const types = { '.js': 'text/javascript', '.html': 'text/html', '.woff2': 'font/woff2' };
+      res.setHeader('Content-Type', types[path.extname(filename)] || 'application/octet-stream'); res.end(data);
+    } catch { res.writeHead(404).end(); }
+  });
+  let browser;
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' });
+    async function fixture() {
+      const context = await browser.newContext();
+      const db = new Map(), saves = [], publishes = [], errors = [], external = [];
+      const api = { failNames: new Set(), dropNames: new Set(), failPublish: false, saveGate: null, detailGate: null, winner: '', failShared: 0, submits: 0 };
+      const row = (id, rec, revision = 1) => ({ id, record: clone(rec), revision, signed_at: null, share_token: null, share_expires_at: null });
+      const meta = r => ({ id: r.id, revision: r.revision, student_name: r.record.studentName, teacher_name: r.record.teacherName, lesson_date: r.record.lessonDate, check_in: r.record.checkIn, course_name: r.record.courseName, signed_at: r.signed_at });
+      await context.route('**/*', async route => {
+        const url = new URL(route.request().url());
+        if (url.origin !== origin) { external.push(url.href); await route.abort(); return; }
+        const reply = (value, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
+        if (url.pathname === '/config.js') return route.fulfill({ contentType: 'text/javascript', body: `window.SFK_CONFIG={supabaseUrl:${JSON.stringify(origin)},supabasePublishableKey:'isolated-test',siteUrl:'https://example.test/'};` });
+        if (url.pathname === '/rest/v1/teachers') return reply([teacher]);
+        if (url.pathname === '/rest/v1/lesson_records') {
+          const id = url.searchParams.get('id')?.slice(3);
+          if (id) { if (api.detailGate) { const gate = api.detailGate; api.detailGate = null; gate.started.resolve(); await gate.release.promise; } return reply(db.has(id) ? [db.get(id)] : []); }
+          return reply([...db.values()].map(meta));
+        }
+        if (url.pathname === '/functions/v1/ocr-schedule') return reply({ words: [
+          { text: '测试学生', x: 0, y: 0, h: 20 }, { text: '2026-10-18', x: 100, y: 0, h: 20 }, { text: '10:00-11:00', x: 250, y: 0, h: 20 }
+        ] });
+        if (url.pathname.startsWith('/rest/v1/rpc/')) {
+          const body = route.request().postDataJSON(), name = url.pathname.split('/').pop();
+          if (name === 'save_lesson') {
+            saves.push(clone(body));
+            if (api.saveGate) { const gate = api.saveGate; api.saveGate = null; gate.started.resolve(); await gate.release.promise; }
+            if (api.failNames.has(body.p_record.studentName)) return reply({ message: '模拟保存失败' }, 500);
+            const old = db.get(body.p_id);
+            if ((old?.revision || 0) !== body.p_expected_revision) return reply({ message: '记录已被更新' }, 409);
+            const saved = row(body.p_id, body.p_record, body.p_expected_revision + 1); saved.teacher_id = body.p_teacher_id; db.set(saved.id, saved);
+            if (api.dropNames.delete(body.p_record.studentName)) return route.abort('failed');
+            return reply(saved);
+          }
+          if (name === 'publish_lesson') {
+            publishes.push(body.p_id);
+            if (api.failPublish) return reply({ message: '模拟发布失败' }, 500);
+            const saved = db.get(body.p_id); saved.share_token = token; saved.share_expires_at = '2099-01-01T00:00:00Z';
+            return reply({ token, expires_at: saved.share_expires_at });
+          }
+          if (name === 'get_shared_lesson') {
+            if (api.failShared > 0) { api.failShared--; return route.abort('failed'); }
+            const saved = [...db.values()].find(r => r.share_token === body.p_token);
+            return saved ? reply({ record: saved.record, signed_at: saved.signed_at }) : reply({ message: '链接失效' }, 404);
+          }
+          if (name === 'submit_lesson_signature') {
+            api.submits++;
+            const saved = [...db.values()].find(r => r.share_token === body.p_token);
+            saved.record.signatures.student = api.winner ? { ...blank(), text: api.winner } : body.p_signature;
+            saved.signed_at = '2026-10-18T02:00:00Z'; saved.revision++;
+            if (api.failAfterSubmit) api.failShared = 2;
+            return reply({ signed_at: saved.signed_at });
+          }
+          throw Error('Unexpected RPC: ' + name);
+        }
+        return route.continue();
+      });
+      const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
+      async function home() { await page.goto(origin); await page.locator('#us-guest').click(); await page.locator('#dashboard').waitFor({ state: 'visible' }); }
+      async function close() { assert.deepEqual(errors, []); assert.deepEqual(external, []); await context.close(); }
+      return { page, context, db, saves, publishes, api, row, home, close };
+    }
+    async function test(name, run) { await run(); console.log('PASS', name); }
+
+    await test('自动保存期间切换老师：等待保存并保留后来输入，手动保存不并发', async () => {
+      const f = await fixture(), { page, api } = f; await f.home();
+      await page.locator('#user-chip-btn').click(); await page.getByRole('button', { name: teacher.name, exact: true }).click();
+      await page.locator('#new-record').click();
+      api.saveGate = { started: deferred(), release: deferred() }; const gate = api.saveGate;
+      await page.locator('#studentName').fill('保存测试'); await gate.started.promise;
+      await page.locator('#content').fill('保存期间的新输入');
+      await page.locator('#save-record').click(); // joins the existing save
+      await page.locator('#user-chip-btn').click(); // busy action must keep the editor visible
+      assert.equal(await page.locator('main.layout').isVisible(), true);
+      gate.release.resolve();
+      await page.waitForFunction(() => document.getElementById('save-status').textContent.includes('已保存 ·'));
+      assert.equal(f.saves.length, 2); assert.deepEqual(f.saves.map(r => r.p_expected_revision), [0, 1]);
+      assert.ok(f.saves.every(r => r.p_teacher_id === teacher.id));
+      assert.equal(f.db.values().next().value.record.content, '保存期间的新输入');
+      await page.locator('#user-chip-btn').click(); await page.locator('#user-select').waitFor({ state: 'visible' });
+      await f.close();
+    });
+
+    await test('切换身份等待自动保存完成；保存失败时保留编辑器', async () => {
+      const f = await fixture(), { page, api } = f; await f.home(); await page.locator('#new-record').click();
+      api.saveGate = { started: deferred(), release: deferred() }; const gate = api.saveGate;
+      await page.locator('#studentName').fill('导航测试'); await gate.started.promise;
+      await page.locator('#user-chip-btn').click(); assert.equal(await page.locator('main.layout').isVisible(), true);
+      gate.release.resolve(); await page.locator('#user-select').waitFor({ state: 'visible' });
+      await page.locator('#us-guest').click(); await page.getByRole('button', { name: '继续填写', exact: true }).click();
+      api.failNames.add('导航测试'); await page.locator('#content').fill('失败时仍保留');
+      await page.locator('#user-chip-btn').click(); await page.waitForFunction(() => document.getElementById('save-status').textContent.includes('暂未切换'));
+      assert.equal(await page.locator('#content').inputValue(), '失败时仍保留'); assert.equal(await page.locator('main.layout').isVisible(), true);
+      await f.close();
+    });
+
+    await test('迟到的轮询详情不能覆盖刚输入的内容', async () => {
+      const f = await fixture(), { page, api } = f; f.db.set('poll', f.row('poll', record('轮询学生'))); await f.home();
+      await page.getByRole('button', { name: '继续填写', exact: true }).click();
+      f.db.get('poll').revision++;
+      api.detailGate = { started: deferred(), release: deferred() }; const gate = api.detailGate;
+      await page.evaluate(() => document.getElementById('refresh-list').click()); await gate.started.promise;
+      await page.locator('#content').fill('不能被覆盖'); gate.release.resolve();
+      await page.waitForTimeout(150); assert.equal(await page.locator('#content').inputValue(), '不能被覆盖');
+      await f.close();
+    });
+
+    await test('打开记录的请求晚到时，不抢回身份选择页', async () => {
+      const f = await fixture(), { page, api } = f; f.db.set('late', f.row('late', record('晚到学生'))); await f.home();
+      api.detailGate = { started: deferred(), release: deferred() }; const gate = api.detailGate;
+      await page.getByRole('button', { name: '继续填写', exact: true }).click(); await gate.started.promise;
+      await page.locator('#user-chip-btn').click(); await page.locator('#user-select').waitFor({ state: 'visible' });
+      gate.release.resolve(); await page.waitForTimeout(150);
+      assert.equal(await page.locator('main.layout').isVisible(), false); assert.equal(await page.locator('#user-select').isVisible(), true);
+      await f.close();
+    });
+
+    await test('批量部分失败刷新后恢复 ID，发布重试不重复保存成功记录', async () => {
+      const f = await fixture(), { page, api } = f; await f.home(); await page.locator('#batch-new').click();
+      await page.locator('.batch-row input[list]').fill('批量甲'); await page.locator('#batch-add').click();
+      await page.locator('.batch-row input[list]').nth(1).fill('批量乙'); api.failNames.add('批量乙');
+      await page.locator('#batch-generate').click(); await page.waitForFunction(() => !SFKBatch.isBusy());
+      const draft = await page.evaluate(() => JSON.parse(localStorage.getItem('sfk-batch-draft-v1')));
+      assert.equal(draft.rows.length, 2); assert.ok(draft.rows.every(r => r.id)); assert.equal(f.db.size, 1);
+      await page.reload(); await page.locator('#us-guest').click(); await page.locator('#batch-new').click();
+      api.failNames.clear(); await page.locator('#batch-generate').click(); await page.waitForFunction(() => !SFKBatch.isBusy());
+      assert.equal(f.db.size, 2); assert.equal(f.saves.filter(r => r.p_record.studentName === '批量甲').length, 1);
+      assert.equal(f.saves.at(-1).p_id, draft.rows[1].id);
+      assert.equal(await page.evaluate(() => localStorage.getItem('sfk-batch-draft-v1')), null);
+      await f.close();
+    });
+
+    await test('批量保存响应丢失：刷新后读取已保存结果，不重复创建或覆盖', async () => {
+      const f = await fixture(), { page, api } = f; await f.home(); await page.locator('#batch-new').click();
+      await page.locator('.batch-row input[list]').fill('丢响应学生'); api.dropNames.add('丢响应学生');
+      await page.locator('#batch-generate').click(); await page.waitForFunction(() => !SFKBatch.isBusy());
+      assert.equal(f.db.size, 1); assert.ok(await page.evaluate(() => JSON.parse(localStorage.getItem('sfk-batch-draft-v1')).rows[0].pending));
+      await page.reload(); await page.locator('#us-guest').click(); await page.locator('#batch-new').click();
+      await page.locator('#batch-generate').click(); await page.waitForFunction(() => !SFKBatch.isBusy());
+      assert.equal(f.saves.length, 1); assert.equal(f.publishes.length, 1); assert.equal(f.db.size, 1);
+      await f.close();
+    });
+
+    await test('OCR 全失败可重试，发布失败重试复用保存结果', async () => {
+      const f = await fixture(), { page, api } = f; await f.home(); await page.locator('#ocr-new').click();
+      await page.locator('#ocr-file').setInputFiles({ name: 'test.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64') });
+      await page.locator('#ocr-recognize').click(); await page.locator('#ocr-next').click();
+      api.failNames.add('测试学生'); await page.locator('#ocr-generate').click(); await page.waitForFunction(() => !SFKOCR.isBusy());
+      assert.equal(await page.locator('#ocr-retry').isVisible(), true); assert.equal(await page.locator('#ocr-generate').isEnabled(), true);
+      api.failNames.clear(); api.failPublish = true; await page.locator('#ocr-retry').click(); await page.waitForFunction(() => !SFKOCR.isBusy());
+      const saves = f.saves.length; api.failPublish = false; await page.locator('#ocr-retry').click(); await page.waitForFunction(() => !SFKOCR.isBusy());
+      assert.equal(f.saves.length, saves); assert.equal(f.db.size, 1); assert.equal(await page.locator('#ocr-copyall').isVisible(), true);
+      await f.close();
+    });
+
+    await test('批量不确定保存遇到版本冲突：保留草稿，不覆盖重试', async () => {
+      const f = await fixture(), { page, api } = f; await f.home(); await page.locator('#batch-new').click();
+      await page.locator('.batch-row input[list]').fill('冲突学生'); api.dropNames.add('冲突学生');
+      await page.locator('#batch-generate').click(); await page.waitForFunction(() => !SFKBatch.isBusy());
+      const saved = f.db.values().next().value; saved.revision++; saved.record.content = '其他设备的新内容';
+      await page.reload(); await page.locator('#us-guest').click(); await page.locator('#batch-new').click();
+      await page.locator('#batch-generate').click(); await page.waitForFunction(() => !SFKBatch.isBusy());
+      assert.equal(f.saves.length, 1); assert.equal(f.publishes.length, 0); assert.equal(saved.record.content, '其他设备的新内容');
+      const draft = await page.evaluate(() => JSON.parse(localStorage.getItem('sfk-batch-draft-v1')));
+      assert.equal(draft.rows[0].id, saved.id); assert.ok(draft.rows[0].error.includes('记录已被更新'));
+      await f.close();
+    });
+
+    await test('批量草稿不能持久化时，不开始外部保存', async () => {
+      const f = await fixture(), { page } = f; await f.home(); await page.locator('#batch-new').click();
+      await page.locator('.batch-row input[list]').fill('存储失败学生');
+      await page.evaluate(() => {
+        const original = Storage.prototype.setItem;
+        Storage.prototype.setItem = function(key, value) { if (key === 'sfk-batch-draft-v1') throw Error('模拟存储已满'); return original.call(this, key, value); };
+      });
+      await page.locator('#batch-generate').click(); await page.waitForFunction(() => !SFKBatch.isBusy());
+      assert.equal(f.saves.length, 0); assert.equal(await page.locator('.batch-row input[list]').inputValue(), '存储失败学生');
+      assert.equal(await page.locator('#batch-generate').isEnabled(), true); await f.close();
+    });
+
+    for (const lostRead of [false, true]) await test(`学生提交显示服务端胜出签名${lostRead ? '，回读失败后重试只查询' : ''}`, async () => {
+      const f = await fixture(), { page, api } = f;
+      const saved = f.row('student', record('签名学生')); saved.share_token = token; f.db.set(saved.id, saved);
+      api.winner = '服务端签名'; api.failAfterSubmit = lostRead;
+      await page.goto(origin + '/#request=' + token); await page.locator('main.layout').waitFor({ state: 'visible' });
+      await page.locator('#student-name').locator('xpath=ancestor::fieldset').getByRole('button', { name: '输入姓名', exact: true }).click();
+      await page.locator('#student-name').fill('本地签名'); await page.locator('#generate-share').click();
+      if (lostRead) { await page.waitForFunction(() => document.getElementById('share-status').textContent.includes('提交未确认')); await page.locator('#generate-share').click(); }
+      await page.waitForFunction(() => document.getElementById('generate-share').textContent === '签名已提交');
+      assert.equal(await page.locator('#student-name').inputValue(), '服务端签名'); assert.equal(api.submits, 1);
+      assert.equal(await page.locator('#student-name').isDisabled(), true);
+      await f.close();
+    });
+  } finally {
+    if (browser) await browser.close();
+    await new Promise(resolve => server.close(resolve));
+  }
+})().catch(error => { console.error(error); process.exitCode = 1; });

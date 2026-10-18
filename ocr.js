@@ -169,6 +169,7 @@ window.SFKOCR=(()=>{
     $('ocr-back-confirm').onclick=()=>{stage='confirm';renderConfirm();};
     $('ocr-apply').onclick=()=>{const c=$('ocr-apply-content').value,hm=$('ocr-apply-homework').value;if(!c&&!hm){status('请先在上方填写内容或作业');return;}rows.forEach(r=>{if(r.selected){if(c)r.content=c;if(hm)r.homework=hm;}});renderContent();status('已应用到全部勾选的签单。');};
     $('ocr-generate').onclick=()=>generate();
+    generationControls();
   }
 
   function renderContentRow(row){
@@ -180,7 +181,7 @@ window.SFKOCR=(()=>{
     const hcell=document.createElement('div');hcell.className='cell';hcell.setAttribute('data-label','课后作业');hcell.append(homework);
     const state=document.createElement('div');state.className='cell';state.setAttribute('data-label','状态');
     const linkArea=document.createElement('div');
-    if(row.status==='linked'&&row.link){const a=document.createElement('a');a.href=row.link;a.target='_blank';a.rel='noopener noreferrer';a.textContent='打开';const c=document.createElement('button');c.type='button';c.textContent='复制链接';c.onclick=async()=>{try{await navigator.clipboard.writeText(row.link);}catch{}c.textContent='已复制';};linkArea.append(a,' ',c);}
+    if(row.status==='linked'&&row.link){const a=document.createElement('a');a.href=row.link;a.target='_blank';a.rel='noopener noreferrer';a.textContent='打开';const c=document.createElement('button');c.type='button';c.textContent='复制链接';c.onclick=async()=>{try{await navigator.clipboard.writeText(row.link);c.textContent='已复制';}catch{status('复制失败，请打开链接后手动复制地址。');}};linkArea.append(a,' ',c);}
     else if(row.status==='error'){const s=document.createElement('span');s.className='ocr-status';s.style.color='#a52626';s.textContent='失败：'+row.error;linkArea.append(s);}
     else if(row.status==='new'){linkArea.append(document.createTextNode('待生成'));}
     state.append(linkArea);
@@ -190,29 +191,42 @@ window.SFKOCR=(()=>{
     return box;
   }
 
+  function generationControls(){view.querySelectorAll('input,textarea,select,button').forEach(el=>el.disabled=busy);}
+  const sameRecord=(a,b)=>JSON.stringify(cloud.cleanRecord(a))===JSON.stringify(cloud.cleanRecord(b));
   async function generate(){
-    if(busy)return;busy=true;$('ocr-generate').disabled=true;
+    if(busy)return;
     const target=rows.filter(r=>r.selected&&r.studentName.trim()&&r.status!=='linked');
-    if(!target.length){status('没有待生成的签单（已生成或未填写学生姓名）。');busy=false;$('ocr-generate').disabled=false;return;}
+    if(!target.length){status('没有待生成的签单（已生成或未填写学生姓名）。');return;}
+    busy=true;generationControls();const teacher=curUser()?.id||null;
     let ok=0,fail=[];
-    for(const r of rows){if(!r.selected||!r.studentName.trim()||r.status==='linked')continue;r.status='new';r.error='';}
-    renderContent();
-    for(const r of rows){
-      if(!r.selected||!r.studentName.trim()||r.status==='linked')continue;
-      status('正在生成 '+r.studentName+' …');
-      try{
-        const record=await cloud.compactRecord(buildRecord(r));
-        r.id=r.id||crypto.randomUUID();
-        const saved=await repo.save(r.id,r.revision||0,record,curUser()?curUser().id:null);
-        r.id=saved.id;r.revision=saved.revision;
-        if(cloud.configured){const share=await cloud.publish(saved.id);const base=new URL(window.SFK_CONFIG.siteUrl);base.hash='request='+share.token;base.search='';r.link=base.href;}
-        r.status='linked';ok++;
-      }catch(e){r.status='error';r.error=e.message;fail.push((r.studentName||'未命名')+'：'+e.message);}
-      renderContent();
-    }
-    status('成功 '+ok+' 份'+(fail.length?'；失败 '+fail.length+' 份：'+fail.join('；'):''));
-    renderResults();
-    busy=false;$('ocr-generate').disabled=false;
+    try{
+      for(const r of target){
+        status('正在生成 '+r.studentName+' …');
+        try{
+          if(r.pending){
+            let latest;
+            try{latest=await repo.get(r.id);}catch(e){if(r.pending.revision!==0||!/^(没有找到这份签单。|没有找到签单)$/.test(e.message))throw e;}
+            if(latest){
+              if(latest.revision===r.pending.revision+1&&sameRecord(latest.record,r.pending.record)){r.revision=latest.revision;r.savedRecord=latest.record;}
+              else if(latest.revision!==r.pending.revision)throw Error('记录已更新，请从管理页核对，不能覆盖重试。');
+            }
+            r.pending=null;
+          }
+          const record=await cloud.compactRecord(buildRecord(r));
+          if(!r.savedRecord||!sameRecord(r.savedRecord,record)){
+            r.id=r.id||crypto.randomUUID();r.link='';r.pending={revision:r.revision||0,record};
+            const saved=await repo.save(r.id,r.pending.revision,record,teacher);
+            r.id=saved.id;r.revision=saved.revision;r.savedRecord=saved.record;r.pending=null;
+          }
+          if(cloud.configured&&!r.link){const base=new URL(window.SFK_CONFIG.siteUrl);if(base.protocol!=='https:')throw Error('请配置 HTTPS 网站地址。');const share=await cloud.publish(r.id);base.hash='request='+share.token;base.search='';r.link=base.href;}
+          r.status='linked';r.error='';ok++;
+        }catch(e){r.status='error';r.error=e.message;fail.push(r.studentName+'：'+e.message);}
+        renderContent();
+      }
+      status('成功 '+ok+' 份'+(fail.length?'；失败 '+fail.length+' 份：'+fail.join('；'):''));
+      renderResults();
+    }catch(e){status('生成未完成：'+e.message);}
+    finally{busy=false;generationControls();}
   }
 
   function renderResults(){
@@ -221,10 +235,10 @@ window.SFKOCR=(()=>{
     const box=$('ocr-results');box.replaceChildren();
     if(!linked.length&&!failed.length){box.hidden=true;return;}
     box.hidden=false;
-    box.innerHTML='<h3 style="margin:0 0 10px">生成结果</h3>'+(linked.length?('<div class="ocr-actions"><button type="button" id="ocr-copyall">复制全部链接</button>'+(failed.length?'<button type="button" id="ocr-retry">仅重试失败项</button>':'')+'</div>'):'')+'<div id="ocr-result-list"></div>';
+    box.innerHTML='<h3 style="margin:0 0 10px">生成结果</h3>'+'<div class="ocr-actions">'+(linked.length?'<button type="button" id="ocr-copyall">复制全部链接</button>':'')+(failed.length?'<button type="button" id="ocr-retry">仅重试失败项</button>':'')+'</div>'+'<div id="ocr-result-list"></div>';
     const list=$('ocr-result-list');
-    linked.forEach(r=>{const line=document.createElement('div');line.className='ocr-status';line.style.cssText='display:flex;justify-content:space-between;gap:10px;margin-bottom:6px';line.innerHTML='<span>'+esc(r.studentName)+'｜'+esc(r.courseName)+'</span><span><a href="'+esc(r.link)+'" target="_blank" rel="noopener noreferrer">打开</a> <button type="button" class="cp">复制链接</button></span>';line.querySelector('.cp').onclick=async()=>{try{await navigator.clipboard.writeText(r.link);}catch{}line.querySelector('.cp').textContent='已复制';};list.append(line);});
-    if(linked.length){$('ocr-copyall').onclick=async()=>{const txt=linked.map(r=>r.studentName+'｜'+r.courseName+'\n'+r.link).join('\n\n');try{await navigator.clipboard.writeText(txt);status('已复制全部链接。');}catch{const t=document.createElement('textarea');t.value=txt;document.body.append(t);t.select();document.execCommand('copy');t.remove();status('已复制全部链接。');}};}
+    linked.forEach(r=>{const line=document.createElement('div');line.className='ocr-status';line.style.cssText='display:flex;justify-content:space-between;gap:10px;margin-bottom:6px';line.innerHTML='<span>'+esc(r.studentName)+'｜'+esc(r.courseName)+'</span><span><a href="'+esc(r.link)+'" target="_blank" rel="noopener noreferrer">打开</a> <button type="button" class="cp">复制链接</button></span>';line.querySelector('.cp').onclick=async()=>{try{await navigator.clipboard.writeText(r.link);line.querySelector('.cp').textContent='已复制';}catch{status('复制失败，请打开链接后手动复制地址。');}};list.append(line);});
+    if(linked.length){$('ocr-copyall').onclick=async()=>{const txt=linked.map(r=>r.studentName+'｜'+r.courseName+'\n'+r.link).join('\n\n');try{await navigator.clipboard.writeText(txt);status('已复制全部链接。');}catch{const t=document.createElement('textarea');t.value=txt;document.body.append(t);t.select();const copied=document.execCommand('copy');t.remove();status(copied?'已复制全部链接。':'复制失败，请逐条打开链接后复制地址。');}};}
     if(failed.length){$('ocr-retry').onclick=()=>{failed.forEach(r=>{r.status='new';r.error='';});renderContent();generate();};}
   }
   function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -242,5 +256,5 @@ window.SFKOCR=(()=>{
 
   $('ocr-back').onclick=()=>{if(window.SFKShowDashboard)window.SFKShowDashboard();else hide();};
 
-  return {show,hide,view,_parse:(words,roster)=>{const out=[];for(const arr of linesFromWords(words)){const r=parseLine(arr.map(w=>w.text).join(' '),roster);if(r.checkIn||r.checkOut||r.studentName||r.courseName)out.push(r);}return out;}};
+  return {show,hide,view,isBusy:()=>busy,_parse:(words,roster)=>{const out=[];for(const arr of linesFromWords(words)){const r=parseLine(arr.map(w=>w.text).join(' '),roster);if(r.checkIn||r.checkOut||r.studentName||r.courseName)out.push(r);}return out;}};
 })();
