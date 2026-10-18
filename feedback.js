@@ -44,7 +44,7 @@
  `;document.head.append(style);
  const dialog=document.createElement('dialog');dialog.id='feedback-dialog';dialog.setAttribute('aria-labelledby','feedback-title');dialog.setAttribute('aria-describedby','feedback-note');
  dialog.innerHTML=`<div class="dialog-bar"><h2 id="feedback-title">补充反馈信息</h2><button type="button" id="feedback-close">关闭</button></div>
- <p id="feedback-note" class="hint">模板草稿 · 尚未接入 AI。按所选课程原文整理，补充项可留空。反馈正文不添加日期和上课时间。</p>
+ <p id="feedback-note" class="hint">AI 生成会将所选课程文字和补充信息提交给 DeepSeek，按用量计费。请核对后发送；正文不添加日期和上课时间。</p>
  <p id="feedback-source"></p><details id="feedback-sources"><summary>核对所选课程（日期仅用于核对）</summary><ul></ul></details>
  <form id="feedback-settings">
  <label><span>当前导师</span><input id="feedback-teacher" maxlength="100" placeholder="填写老师姓名"><small>所选课程导师一致时自动带入，可修改。</small></label>
@@ -54,28 +54,43 @@
  <label class="wide"><span>本次作业（可调整）</span><textarea id="feedback-homework" placeholder="填写本次需要反馈的作业"></textarea><small id="feedback-homework-hint"></small></label>
  <label class="wide"><span>课堂表现补充（选填）</span><textarea id="feedback-observation" placeholder="填写实际观察，例如：能根据测试结果调整结构。"></textarea><small>仅填写真实表现，不会自动补写评价。</small></label>
  <label class="wide"><span>学习建议（选填）</span><textarea id="feedback-advice" placeholder="例如：先梳理主要问题，再逐项测试。"></textarea><small>与作业分开；没有具体建议可留空。</small></label>
- <div class="actions wide"><button type="submit" class="primary">生成反馈草稿</button></div></form>
+ <div class="actions wide"><button type="button" id="feedback-template">使用本地模板（免费）</button><button type="submit" id="feedback-generate" class="primary">AI 生成反馈</button></div></form>
  <div id="feedback-result" hidden><label for="feedback-text">反馈正文（可直接修改）</label><textarea id="feedback-text"></textarea>
  <div class="actions"><button type="button" id="feedback-back">返回调整信息</button><button type="button" class="primary" id="feedback-copy">复制反馈</button></div></div><p id="feedback-status" class="hint" role="status"></p>`;
  document.body.append(dialog);
  const el=id=>dialog.querySelector('#feedback-'+id);
  const body=el('text'),status=el('status'),copy=el('copy'),settings=el('settings'),result=el('result');
- let current=null;
+ let current=null,pending=null;
  const fields={teacherName:'teacher',progress:'progress',pronoun:'pronoun',project:'project',homework:'homework',observation:'observation',advice:'advice'};
+ const readOptions=()=>Object.fromEntries(Object.entries(fields).map(([key,id])=>[key,el(id).value]));
+ function showResult(value,message){body.value=value;settings.hidden=true;result.hidden=false;el('title').textContent='课程反馈草稿';status.textContent=message;copy.disabled=false;body.focus();}
+ function controls(disabled){for(const control of settings.querySelectorAll('input,select,textarea,button'))control.disabled=disabled;el('generate').disabled=disabled||!SFKCloud.configured;}
  el('close').onclick=()=>dialog.close();
- settings.onsubmit=e=>{
-  e.preventDefault();
-  try{const options=Object.fromEntries(Object.entries(fields).map(([key,id])=>[key,el(id).value]));body.value=draft(current,options);settings.hidden=true;result.hidden=false;el('title').textContent='课程反馈草稿';status.textContent='草稿已生成，请核对后复制。';copy.disabled=false;body.focus();}
-  catch(error){status.textContent=error.message;}
+ dialog.addEventListener('close',()=>{pending?.abort();pending=null;controls(false);});
+ el('template').onclick=()=>{try{showResult(draft(current,readOptions()),'本地模板草稿 · 未调用AI，可修改后复制。');}catch(e){status.textContent=e.message;}};
+ settings.onsubmit=async e=>{
+  e.preventDefault();if(pending)return;
+  const options=readOptions();
+  try{draft(current,options);}catch(error){status.textContent=error.message;return;}
+  const controller=new AbortController();pending=controller;controls(true);status.textContent='正在调用DeepSeek，请稍候…';el('generate').textContent='生成中…';
+  try{
+   // Project only the text fields used by the function; no signature or share token.
+   const lessons=current.lessons.map(({studentName,courseName,content})=>({studentName,courseName,content}));
+   const response=await SFKCloud.generateFeedback({studentName:current.studentName,lessons,options},controller.signal);
+   if(pending!==controller||!dialog.open)return;
+   const usage=response.usage,counts=Number.isFinite(usage?.inputTokens)&&Number.isFinite(usage?.outputTokens)?' 输入 '+usage.inputTokens+' / 输出 '+usage.outputTokens+' token。':'';
+   showResult(response.text,'DeepSeek生成草稿，请核对事实后复制。'+counts);
+  }catch(error){if(pending===controller&&dialog.open)status.textContent='生成失败：'+error.message+' 填写内容已保留，可稍后重试或使用本地模板。';}
+  finally{if(pending===controller){pending=null;controls(false);el('generate').textContent='AI 生成反馈';}}
  };
  el('back').onclick=()=>{settings.hidden=false;result.hidden=true;el('title').textContent='补充反馈信息';status.textContent='重新生成会替换正文中的手动修改。';el('teacher').focus();};
  body.oninput=()=>{status.textContent='';copy.disabled=!body.value.trim();};
  copy.onclick=async()=>{const value=body.value;if(!value.trim())return;copy.disabled=true;try{await navigator.clipboard.writeText(value);status.textContent='已复制，可粘贴发送给学生或家长。';}catch{body.focus();body.select();status.textContent='无法自动复制，正文已选中，请手动复制。';}finally{copy.disabled=!body.value.trim();}};
  // Keep drafts in memory only; no feedback or reference history is persisted.
  window.SFKFeedback={prepare,draft,open(rows){
-  current=prepare(rows);const values=defaults(current);
+  pending?.abort();pending=null;controls(false);el('generate').textContent='AI 生成反馈';current=prepare(rows);const values=defaults(current);
   for(const [key,id] of Object.entries(fields))el(id).value=values[key];
-  body.value='';copy.disabled=true;status.textContent='';settings.hidden=false;result.hidden=true;el('title').textContent='补充反馈信息';
+  body.value='';copy.disabled=true;status.textContent=SFKCloud.configured?'':'本地预览尚未配置Supabase，可使用免费模板。';settings.hidden=false;result.hidden=true;el('title').textContent='补充反馈信息';
   el('source').textContent=current.studentName+' · 已选 '+current.lessons.length+' 次课程 · 同名学生请核对课程归属';
   const sources=el('sources');sources.open=false;const list=sources.querySelector('ul');list.replaceChildren();
   for(const r of current.lessons){const li=document.createElement('li');li.textContent=[r.lessonDate||'日期未提供',r.checkIn,r.courseName,r.teacherName&&'导师：'+r.teacherName,'内容：'+(r.content||'未填写'),'作业：'+(r.homework||'未填写')].filter(Boolean).join(' · ');list.append(li);}

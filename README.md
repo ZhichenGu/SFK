@@ -125,15 +125,29 @@ NODE_PATH=/path/to/node_modules CHROME_PATH=/path/to/chrome node tests/regressio
 
 数据主对象包括 `schemaVersion`、`studentName`、`courseName`、`lessonDate`、`lessonNumber`、`checkIn`、`checkOut`、`content`、`homework`、`previousHomework`、`teacherName`、`signatures.student/mentor`。表单中保留签名三种方式的草稿；入库只保留当前选中方式。数据库使用 `revision` 避免旧页面覆盖学生刚提交的签名；遇到冲突先显示错误，不强制覆盖。教师身份用 `teachers` 表（id + name），签单用 `lesson_records.teacher_id` 关联教师做数据隔离。
 
-`polishService.provider` 是未来 AI 润色接入点：输入字段、原文、课程上下文和取消信号，返回建议文字。当前没有任何 AI API 调用、模型名依赖或密钥。未来应由服务端保管模型密钥，建议文字由老师采用后再写回字段。
+`polishService.provider` 是未来 AI 润色接入点：输入字段、原文、课程上下文和取消信号，返回建议文字。此润色入口仍未接入 AI；课程反馈使用下述独立接口。模型密钥只由服务端保管，建议文字由老师采用后再写回字段。
 
-## 课程反馈草稿与后续 AI 接入
+## 课程反馈与 DeepSeek 接入
 
-首页搜索学生后，可勾选同一姓名的一份或多份签单，点「一键生成反馈」。`feedback.js` 先打开补充信息面板，可填写导师、0–100 的进度、他／她／学生、项目名称、课堂表现与学习建议。导师一致时自动带入，作业仅取最近一次上课的记录并可修改；缺少日期时需手动确认作业。生成正文采用 🔸 分行格式，不自动插入课程日期、时间或寒暄；再打开可编辑、可复制的模板草稿；界面标明尚未接入 AI。混选不同姓名、姓名为空或任一所选记录读取失败时不生成。姓名不是唯一学生身份，同名情况仍需老师核对。草稿不写回签单、不持久化、不自动发送；未提供的课堂内容和作业标明未提供；其他补充项留空时省略，不会自动生成表现评价或推断作业完成情况。
+首页搜索学生后勾选同一学生的1–20份签单，点「一键生成反馈」。填写导师、0–100 的进度、他／她／学生、项目、课堂观察和学习建议。导师一致时带入；作业只取最近一次课程并可修改，最新为空不沿用旧作业，日期缺失时手动填写。混选不同姓名、姓名为空或任一记录读取失败时不生成；姓名并非唯一身份，同名情况需老师核对。
 
-未来可沿用 Supabase Edge Function 转发至文本模型 API（例如 OpenAI Responses API），密钥和模型配置放在服务端。`SFKFeedback.prepare(rows)` 提供经过字段筛选的课程输入，仅含姓名、记录 ID、课程、日期、时间、导师、上课内容和作业，不传签名图片或学生签名链接。生成请求还需附上接收对象、篇幅、版本化写作规则和少量相关参考案例。服务端应约束输入长度、输出长度和调用频率；现有工作台没有身份认证，付费入口上线前还需明确可用人群及额度控制。
+「AI 生成反馈」通过 `cloud.js` 调用 `generate-feedback` Edge Function，再调用 DeepSeek Chat Completions。只发送学生姓名、课程类型、课堂内容及补充字段，不传签名图片、链接、记录ID或日期时间。固定规则和一条匿名风格示例从用户提供的 MD 提炼，内嵌在服务端函数中（规则版本2026-10-18），不会自动读取桌面文件。规则要求 🔸 分行、简洁去重、无时间与寒暄、无虚构表现。AI建议仍需老师核对。
 
-参考材料可按 [feedback-reference-template.md](feedback-reference-template.md) 整理。先用规则与案例提示完成风格校准，无需一开始训练模型或建立知识库；历史聊天提炼后使用，不在每次请求附上完整记录。案例是风格参考，当前学生的事实仅来自本次课程输入。本文只描述后续接口，当前没有新增云端函数或付费调用。
+可随时选择「使用本地模板（免费）」。AI失败保留输入，不自动重试、不静默改成模板；生成时按钮禁用防止重复点击。关闭弹窗取消浏览器等待，但服务端可能已处理并计费。草稿仅在内存中，不写回签单、不自动发送。
+
+### Supabase 控制台部署
+
+1. 在当前项目的 Edge Functions → Secrets 保存 `DEEPSEEK_API_KEY`。可选 `DEEPSEEK_MODEL`，默认 `deepseek-flash`，另支持 `deepseek-v4-pro`。
+2. Edge Functions → Deploy a new function → Via Editor，名称填写 `generate-feedback`。
+3. 用 [supabase/functions/generate-feedback/index.ts](supabase/functions/generate-feedback/index.ts) 的完整内容替换编辑器默认代码，点 Deploy function。
+4. 该函数沿用工作台免登录模式，JWT验证应关闭（函数设置中的 Verify JWT / Enforce JWT Verification）；CLI部署会读取 `supabase/config.toml` 的 `verify_jwt=false`。
+5. 更新网站前端的 `cloud.js` 和 `feedback.js`，然后刷新页面。仅部署函数不会更新旧网页。
+
+无需执行 SQL 或改数据库结构。CLI部署只运行：`supabase functions deploy generate-feedback --project-ref gsbktszybeqhpyirvcaw`；执行云端部署、推送网站及真实付费调用仍需用户授权。
+
+函数限制最多20份课程、请求80KB、模型输入16000字符、输出1000 token，非思考模式，45秒上游超时。每个函数实例每分钟最多10次有效请求；这是临时实例限流，不是跨实例的全局额度，也不是身份验证。工作台仍公开，新增付费函数同样公开可调用，部署者需了解此费用边界。错误信息不会回传密钥或原始供应商错误。
+
+本地验证：`node tests/feedback-function.cjs` 使用模拟 Deno 与供应商，不产生费用；`tests/regression.cjs` 覆盖前端提交、失败后输入保留、重试与免费模板。真实部署和真实模型效果需另行验证。
 
 ## 已修正的流程规则
 

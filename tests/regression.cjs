@@ -30,7 +30,7 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
     async function fixture() {
       const context = await browser.newContext();
       const db = new Map(), saves = [], publishes = [], errors = [], external = [];
-      const api = { failNames: new Set(), dropNames: new Set(), failPublish: false, saveGate: null, detailGate: null, winner: '', failShared: 0, submits: 0, ocrCalls: 0, ocrWords: null };
+      const api = { failNames: new Set(), dropNames: new Set(), failPublish: false, saveGate: null, detailGate: null, winner: '', failShared: 0, submits: 0, ocrCalls: 0, ocrWords: null, feedbackCalls: [], feedbackFailure: false };
       const row = (id, rec, revision = 1) => ({ id, record: clone(rec), revision, signed_at: null, share_token: null, share_expires_at: null });
       const meta = r => ({ id: r.id, revision: r.revision, student_name: r.record.studentName, teacher_name: r.record.teacherName, lesson_date: r.record.lessonDate, check_in: r.record.checkIn, course_name: r.record.courseName, signed_at: r.signed_at });
       await context.route('**/*', async route => {
@@ -43,6 +43,10 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
           const id = url.searchParams.get('id')?.slice(3);
           if (id) { if (api.detailGate) { const gate = api.detailGate; api.detailGate = null; gate.started.resolve(); await gate.release.promise; } return reply(db.has(id) ? [db.get(id)] : []); }
           return reply([...db.values()].map(meta));
+        }
+        if (url.pathname === '/functions/v1/generate-feedback') {
+          api.feedbackCalls.push(route.request().postDataJSON());
+          return api.feedbackFailure ? reply({error:'模拟余额不足'},502) : reply({text:'🔸课程内容：AI测试反馈',usage:{inputTokens:400,outputTokens:50}});
         }
         if (url.pathname === '/functions/v1/ocr-schedule') { api.ocrCalls++; return reply({ words: api.ocrWords || [
           { text: '测试学生', x: 0, y: 0, h: 20 }, { text: '2026-10-18', x: 100, y: 0, h: 20 }, { text: '10:00-11:00', x: 250, y: 0, h: 20 }
@@ -110,7 +114,7 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
         await page.setViewportSize({ width, height: 900 });
         assert.ok(await page.locator('#feedback-dialog').evaluate(e => e.scrollWidth <= e.clientWidth));
       }
-      await page.locator('#feedback-settings button[type=submit]').click();
+      await page.locator('#feedback-template').click();
       const value = await page.locator('#feedback-text').inputValue();
       assert.ok(value.includes('制作模型') && value.includes('补充草图') && value.includes('🔸最新进度百分比：35%'));
       assert.ok(value.indexOf('色彩练习') < value.indexOf('制作模型'));
@@ -120,7 +124,7 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
       await page.locator('#feedback-back').click();
       assert.equal(await page.locator('#feedback-progress').inputValue(), '35');
       await page.locator('#feedback-progress').fill('0');
-      await page.locator('#feedback-settings button[type=submit]').click();
+      await page.locator('#feedback-template').click();
       assert.ok((await page.locator('#feedback-text').inputValue()).includes('0%'));
       const blankLatest = await page.evaluate(() => {
         const input = SFKFeedback.prepare([{id:'old',record:{studentName:'学生',lessonDate:'2026-10-17',homework:'旧作业'}},{id:'new',record:{studentName:'学生',lessonDate:'2026-10-18',homework:''}}]);
@@ -139,6 +143,22 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
       await page.waitForFunction(() => document.getElementById('feedback-status').textContent.includes('已复制'));
       assert.equal(await page.evaluate(() => window.copiedFeedback), '老师编辑后的反馈');
       assert.equal(f.saves.length, 0); assert.equal(f.publishes.length, 0); await f.close();
+    });
+
+    await test('AI反馈只提交必要文字，失败保留输入，不自动重试或写回签单', async () => {
+      const f = await fixture(), {page,api} = f;
+      f.db.set('a',f.row('a',record('AI学生')));await f.home();
+      await page.locator('#select-all').check();await page.locator('#generate-feedback').click();
+      await page.locator('#feedback-progress').fill('40');api.feedbackFailure=true;
+      await page.locator('#feedback-generate').click();
+      await page.waitForFunction(()=>document.getElementById('feedback-status').textContent.includes('模拟余额不足'));
+      assert.equal(await page.locator('#feedback-progress').inputValue(),'40');assert.equal(api.feedbackCalls.length,1);
+      const request=api.feedbackCalls[0];assert.equal(request.options.progress,'40');
+      assert.deepEqual(Object.keys(request.lessons[0]).sort(),['content','courseName','studentName']);
+      api.feedbackFailure=false;await page.locator('#feedback-generate').click();
+      await page.locator('#feedback-result').waitFor({state:'visible'});
+      assert.equal(await page.locator('#feedback-text').inputValue(),'🔸课程内容：AI测试反馈');
+      assert.equal(api.feedbackCalls.length,2);assert.equal(f.saves.length,0);await f.close();
     });
 
     await test('反馈拒绝混选学生，读取缺失记录时不静默漏课且可重试', async () => {

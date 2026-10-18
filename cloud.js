@@ -45,5 +45,18 @@ window.SFKCloud = (() => {
     publish:id=>rpc('publish_lesson',{p_id:id}),getShared:token=>rpc('get_shared_lesson',{p_token:token}),submit:(token,signature)=>rpc('submit_lesson_signature',{p_token:token,p_signature:signature}),
     async listTeachers(){const rows=await request('/rest/v1/teachers?select=id,name&order=name');return rows;},
     addTeacher:name=>rpc('add_teacher',{p_name:name}),
+    async generateFeedback(input,signal){
+      if(!configured)throw Error('请先配置Supabase，再使用AI反馈。');
+      const controller=new AbortController(),cancel=()=>controller.abort();
+      const timer=setTimeout(cancel,55000);signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();
+      try{
+        const res=await fetch(url+'/functions/v1/generate-feedback',{method:'POST',headers:{'Content-Type':'application/json',apikey:config.supabasePublishableKey},body:JSON.stringify(input),signal:controller.signal});
+        const data=await res.json().catch(()=>null);
+        if(!res.ok)throw Error(data?.error||(res.status===404?'反馈函数尚未部署，请先部署generate-feedback。':'AI反馈调用失败，请检查函数部署和配置。'));
+        if(typeof data?.text!=='string'||!data.text.trim())throw Error('AI未返回反馈正文。');
+        return data;
+      }catch(e){if(e.name==='AbortError')throw Error(signal?.aborted?'AI请求已取消，本次调用可能仍已计费。':'AI生成超时，未自动重试；本次调用可能已计费。');throw e;}
+      finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
+    },
     async ocrSchedule(image){if(!configured)throw Error('请先按 README 配置 Supabase。');const res=await fetch(url+'/functions/v1/ocr-schedule',{method:'POST',headers:{'Content-Type':'application/json',apikey:config.supabasePublishableKey},body:JSON.stringify({image})});const data=await res.json().catch(()=>null);if(!res.ok)throw Error(data?.error||'OCR 调用失败，请重试。');return data;}};
 })();

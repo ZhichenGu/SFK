@@ -4,3 +4,7 @@ project_id = "gsbktszybeqhpyirvcaw"
 # The workspace intentionally has no user login. The function is public, while
 # the Google credential remains server-side in a Supabase Secret.
 verify_jwt = false
+
+[functions.generate-feedback]
+# Public workspace; model credential stays in the server Secret.
+verify_jwt = false
