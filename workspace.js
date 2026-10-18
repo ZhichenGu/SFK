@@ -21,7 +21,7 @@
  <label class="filter-field" for="record-filter"><span>签名状态</span><select id="record-filter" aria-label="签名状态"><option value="all">全部签名状态</option><option value="pending">待签名</option><option value="signed">已签名</option></select></label>
  <label class="filter-field" for="record-order"><span>排列方式</span><select id="record-order" aria-label="排列方式"><option value="date-desc">上课时间 · 最近优先</option><option value="date-asc">上课时间 · 最早优先</option><option value="name">学生姓名 · 拼音排序</option></select></label>
  </div>
- <div class="bulk-bar"><div class="bulk-selection"><label class="choice"><input id="select-all" type="checkbox">全选筛选结果</label><span id="selection-count" class="hint">已选 0 份</span></div><div class="bulk-actions"><button type="button" id="batch-download" disabled>批量下载图片 ZIP</button><button type="button" id="refresh-list">刷新签名状态</button></div></div><div id="record-list"></div><p id="workspace-status" class="workspace-message" role="status"></p>
+ <div class="bulk-bar"><div class="bulk-selection"><label class="choice"><input id="select-all" type="checkbox">全选筛选结果</label><span id="selection-count" class="hint">已选 0 份</span></div><div class="bulk-actions"><button type="button" id="generate-feedback" disabled>一键生成反馈</button><button type="button" id="batch-download" disabled>批量下载图片 ZIP</button><button type="button" id="refresh-list">刷新签名状态</button></div></div><div id="record-list"></div><p id="workspace-status" class="workspace-message" role="status"></p>
  <section class="workspace-guide" aria-labelledby="workspace-guide-title">
   <div class="workspace-guide-heading"><h2 id="workspace-guide-title">签单快速上手</h2><p>一名学生用「新建签单」，多名学生一起填用「批量新建」。</p></div>
   <div class="workspace-guide-grid">
@@ -64,7 +64,7 @@
  window.SFKRepo=repository;window.SFKBatchDefaults={read:readDefaults,write:writeDefaults,remember:rememberDefaults};
  const snapshot=()=>JSON.stringify(state);
  function filtered(){const q=$('record-search').value.trim().toLocaleLowerCase(),t=$('teacher-filter').value,f=$('record-filter').value,a=$('date-from').value,b=$('date-to').value,o=$('record-order').value;return records.filter(r=>(r.student_name||'').toLocaleLowerCase().includes(q)&&(!t||(r.teacher_name||'')===t)&&(f==='all'||(f==='signed')===!!r.signed_at)&&(!a||r.lesson_date>=a)&&(!b||r.lesson_date<=b)).sort((a,b)=>o==='name'?(a.student_name||'').localeCompare(b.student_name||'','zh-CN'):((a.lesson_date+' '+a.check_in).localeCompare(b.lesson_date+' '+b.check_in))*(o==='date-desc'?-1:1));}
- function count(){const rows=filtered();$('selection-count').textContent='已选 '+selection.size+' 份';$('batch-download').disabled=!selection.size||busy;$('select-all').checked=rows.length>0&&rows.every(r=>selection.has(r.id));$('select-all').indeterminate=rows.some(r=>selection.has(r.id))&&!$('select-all').checked;}
+ function count(){const rows=filtered();$('selection-count').textContent='已选 '+selection.size+' 份';$('batch-download').disabled=!selection.size||busy;$('generate-feedback').disabled=!selection.size||busy;$('select-all').checked=rows.length>0&&rows.every(r=>selection.has(r.id));$('select-all').indeterminate=rows.some(r=>selection.has(r.id))&&!$('select-all').checked;}
  function drawList(){const list=$('record-list');list.replaceChildren();const rows=filtered();if(!rows.length){const p=document.createElement('p');p.className='section';p.textContent='没有符合条件的签单，可新建签单或调整筛选条件。';list.append(p);}for(const r of rows){const card=document.createElement('article');card.className='record-card';const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=selection.has(r.id);checkbox.setAttribute('aria-label','选择 '+(r.student_name||'未命名学生')+' '+r.lesson_date);checkbox.onchange=()=>{checkbox.checked?selection.add(r.id):selection.delete(r.id);count();};const info=document.createElement('div');info.className='record-info';const name=document.createElement('strong');name.textContent=r.student_name||'未填写学生姓名';const desc=document.createElement('p');desc.textContent=[r.course_name,r.lesson_date,r.check_in].filter(Boolean).join(' · ');info.append(name,desc);const status=document.createElement('span');status.className='record-state'+(r.signed_at?' signed':'');status.textContent=r.signed_at?'已签名':'待签名';const open=document.createElement('button');open.type='button';open.textContent=r.signed_at?'查看签单':'继续填写';open.onclick=()=>openRecord(r.id);const remove=document.createElement('button');remove.type='button';remove.className='danger';remove.textContent='删除';remove.onclick=async()=>{if(!confirm('删除 '+(r.student_name||'未命名学生')+' · '+r.lesson_date+' 的签单？\n记录和签名将永久删除，已有签名链接失效。'))return;remove.disabled=true;try{await repository.remove(r.id);selection.delete(r.id);await refresh();$('workspace-status').textContent='签单已删除。';}catch(e){$('workspace-status').textContent=e.message;remove.disabled=false;}};card.append(checkbox,info,status,open,remove);list.append(card);}count();}
  async function refresh(force=false){
   if(refreshing||(!force&&(busy||savePromise)))return;
@@ -141,6 +141,18 @@
  for(const id of ['record-search','teacher-filter','date-from','date-to','record-filter','record-order'])$(id).addEventListener('input',()=>{selection.clear();drawList();});
  $('select-all').onchange=()=>{for(const r of filtered())$('select-all').checked?selection.add(r.id):selection.delete(r.id);drawList();};
  $('refresh-list').onclick=refresh;
+ $('generate-feedback').onclick=async()=>{
+  if(busy||!selection.size)return;
+  const selected=[...selection];busy=true;count();
+  $('workspace-status').textContent='正在读取所选课程内容…';
+  try{
+   const rows=[];
+   for(const id of selected)rows.push(await repository.get(id));
+   SFKFeedback.open(rows);
+   $('workspace-status').textContent='反馈模板草稿已生成，可修改后复制。';
+  }catch(e){$('workspace-status').textContent='反馈生成失败：'+e.message;}
+  finally{busy=false;count();}
+ };
  $('batch-download').onclick=async()=>{if(busy)return;busy=true;count();$('new-record').disabled=true;const selected=[...selection],files=[],failures=[];try{for(let i=0;i<selected.length;i++){const id=selected[i];$('workspace-status').textContent='正在生成 '+(i+1)+' / '+selected.length+' 份图片…';try{const r=await repository.get(id);const blob=await SFKExports.png(r.record);const label=(r.record.studentName||'未命名学生')+'_'+r.record.lessonDate+'_'+id.slice(0,8)+'.png';files.push({name:label.replace(/[\\/:*?"<>|]/g,'_'),data:new Uint8Array(await blob.arrayBuffer())});}catch(e){const meta=records.find(r=>r.id===id);failures.push((meta?.student_name||id)+'：'+e.message);}}if(files.length){SFKExports.download(SFKExports.zip(files),'学生签单_'+dateLocal(new Date())+'.zip');$('workspace-status').textContent='已打包 '+files.length+' 份 PNG。'+(failures.length?' 未导出：'+failures.join('；'):'');}else $('workspace-status').textContent='未生成图片：'+failures.join('；');}catch(e){$('workspace-status').textContent='下载失败：'+e.message;}finally{busy=false;$('new-record').disabled=false;count();}};
  window.addEventListener('storage',e=>{if(!cloud&&e.key===KEY)refresh();});document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
  if(location.hash.startsWith('#request=')){dashboard.hidden=true;savebar.hidden=true;SFKEditor.studentRoute(location.hash.slice(9));}

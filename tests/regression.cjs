@@ -89,6 +89,46 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
     }
     async function test(name, run) { await run(); console.log('PASS', name); }
 
+    await test('反馈仅使用所选学生的课程原文，排序、编辑、复制和手机布局正常', async () => {
+      const f = await fixture(), { page } = f;
+      const later = { ...record('反馈学生'), content: '制作模型', homework: '补充草图', lessonDate: '2026-10-18' };
+      const earlier = { ...record('反馈学生'), content: '<b>色彩练习</b>', lessonDate: '2026-10-17' };
+      f.db.set('later', f.row('later', later)); f.db.set('earlier', f.row('earlier', earlier));
+      f.db.set('other', f.row('other', record('另一学生')));
+      await f.home(); assert.equal(await page.locator('#generate-feedback').isDisabled(), true);
+      await page.locator('#record-search').fill('反馈学生'); await page.locator('#select-all').check();
+      await page.locator('#generate-feedback').click(); await page.locator('#feedback-dialog').waitFor({ state: 'visible' });
+      const value = await page.locator('#feedback-text').inputValue();
+      assert.ok(value.includes('制作模型') && value.includes('补充草图') && value.includes('课后作业：未填写'));
+      assert.ok(value.indexOf('色彩练习') < value.indexOf('制作模型'));
+      assert.ok(!value.includes('另一学生')); assert.equal(await page.locator('#feedback-dialog b').count(), 0);
+      for (const width of [320, 375, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+        assert.ok(await page.locator('#feedback-dialog').evaluate(e => e.scrollWidth <= e.clientWidth));
+      }
+      await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => { window.copiedFeedback = value; } } }));
+      await page.locator('#feedback-text').fill('老师编辑后的反馈'); await page.locator('#feedback-copy').click();
+      await page.waitForFunction(() => document.getElementById('feedback-status').textContent.includes('已复制'));
+      assert.equal(await page.evaluate(() => window.copiedFeedback), '老师编辑后的反馈');
+      assert.equal(f.saves.length, 0); assert.equal(f.publishes.length, 0); await f.close();
+    });
+
+    await test('反馈拒绝混选学生，读取缺失记录时不静默漏课且可重试', async () => {
+      const f = await fixture(), { page } = f;
+      f.db.set('a', f.row('a', record('学生甲'))); f.db.set('b', f.row('b', record('学生乙')));
+      await f.home(); await page.locator('#record-list .record-card').nth(1).waitFor();
+      await page.locator('#select-all').check(); await page.locator('#generate-feedback').click();
+      await page.waitForFunction(() => document.getElementById('workspace-status').textContent.includes('同一位学生'));
+      assert.equal(await page.locator('#feedback-dialog').isVisible(), false);
+      await page.locator('#record-search').fill('学生甲'); await page.locator('#select-all').check();
+      const saved = f.db.get('a'); f.db.delete('a'); await page.locator('#generate-feedback').click();
+      await page.waitForFunction(() => document.getElementById('workspace-status').textContent.includes('反馈生成失败'));
+      assert.equal(await page.locator('#feedback-dialog').isVisible(), false);
+      f.db.set('a', saved); await page.locator('#generate-feedback').click();
+      await page.locator('#feedback-dialog').waitFor({ state: 'visible' }); await f.close();
+    });
+
     await test('首页教程入口可用，四类页面在手机和桌面无横向溢出，批量详情按需展开', async () => {
       const f = await fixture(), { page } = f; f.db.set('ui-record', f.row('ui-record', record('Alexandra Samantha Montgomery'))); await f.home();
       async function checkWidths() {
