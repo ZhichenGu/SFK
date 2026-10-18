@@ -13,12 +13,13 @@ header .brand>div{min-width:0}#user-chip-btn{max-width:160px;overflow:hidden;tex
 @media(max-width:520px){header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center}header .brand{grid-column:1;grid-row:1 / span 2}header #user-chip{grid-column:2;grid-row:1}header .mobile-preview{grid-column:2;grid-row:2;justify-self:end;min-height:36px;padding:6px 12px}#user-chip-btn{max-width:112px}.us-add input{min-width:0}.brand-title h1{overflow-wrap:anywhere}}
 header .header-actions{display:flex;align-items:center;gap:12px;margin-left:auto;flex-shrink:0}header .header-actions #user-chip{margin-left:0!important}#quickstart-button{white-space:nowrap;font-size:14px;min-height:38px}
 @media(max-width:700px){header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center}header .brand{grid-column:1;grid-row:1}header .header-actions{grid-column:1 / -1;grid-row:2;width:100%;margin-left:0;justify-content:flex-end;gap:8px}header .mobile-preview{grid-column:2;grid-row:1}header .header-actions #user-chip{grid-column:auto;grid-row:auto}}
+@media(max-width:600px){header{padding-left:14px;padding-right:14px}.layout{padding-left:14px;padding-right:14px}}
 @page{size:A4 portrait;margin:0}
 @media print{html,body{margin:0!important;padding:0!important;background:white!important}body>*:not(.print-root){display:none!important}.print-root{display:block!important;width:210mm;height:297mm;overflow:hidden}.print-root svg{display:block;width:210mm;height:297mm}dialog{display:none!important}}
 </style>
 </head>
 <body>
-<header><a class="brand" id="home-link" href="./" aria-label="返回首页"><span class="mark" aria-hidden="true">课</span><div><div class="eyebrow">TEACHING WORKSPACE</div><div class="brand-title"><h1>学生上课签单</h1><span class="app-version" id="app-version" title="v0.2 · 反馈建议支持简短鼓励">v0.2</span></div></div></a><p>课后记录</p><button class="mobile-preview" type="button" data-action="preview">预览</button></header>
+<header><a class="brand" id="home-link" href="./" aria-label="返回首页"><span class="mark" aria-hidden="true">课</span><div><div class="eyebrow">TEACHING WORKSPACE</div><div class="brand-title"><h1>学生上课签单</h1><span class="app-version" id="app-version" title="v0.3 · 页面边距与表单列对齐">v0.3</span></div></div></a><p>课后记录</p><button class="mobile-preview" type="button" data-action="preview">预览</button></header>
 <main class="layout" hidden>
 <form id="record-form" novalidate>
 <section class="section" aria-labelledby="basic-title"><h2 id="basic-title"><span class="num">01</span>课程信息</h2><div class="grid">
@@ -104,16 +105,16 @@ async function performExport(kind){const svg=currentDocument.svg;const buttons=[
 document.querySelectorAll('[data-action]').forEach(btn=>btn.onclick=()=>{if(btn.dataset.action==='preview'){render();$('large-paper').innerHTML=currentDocument.svg;$('preview-dialog').showModal();}else requestExport(btn.dataset.action);});$('close-preview').onclick=()=>$('preview-dialog').close();window.addEventListener('beforeprint',render);window.addEventListener('beforeunload',e=>{if(window.SFKHasUnsavedChanges?.()){e.preventDefault();e.returnValue='';}});
 render();
 </script>
-<script src="config.js?v=0.2"></script>
-<script src="fonts.js?v=0.2"></script>
-<script src="cloud.js?v=0.2"></script>
-<script src="sharing.js?v=0.2"></script>
-<script src="exports.js?v=0.2"></script>
-<script src="feedback.js?v=0.2"></script>
-<script src="workspace.js?v=0.2"></script>
-<script src="users.js?v=0.2"></script>
-<script src="batch.js?v=0.2"></script>
-<script src="ocr-parser.js?v=0.2"></script>
-<script src="ocr.js?v=0.2"></script>
+<script src="config.js?v=0.3"></script>
+<script src="fonts.js?v=0.3"></script>
+<script src="cloud.js?v=0.3"></script>
+<script src="sharing.js?v=0.3"></script>
+<script src="exports.js?v=0.3"></script>
+<script src="feedback.js?v=0.3"></script>
+<script src="workspace.js?v=0.3"></script>
+<script src="users.js?v=0.3"></script>
+<script src="batch.js?v=0.3"></script>
+<script src="ocr-parser.js?v=0.3"></script>
+<script src="ocr.js?v=0.3"></script>
 </body>
 </html>
