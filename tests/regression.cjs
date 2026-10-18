@@ -89,6 +89,32 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
     }
     async function test(name, run) { await run(); console.log('PASS', name); }
 
+    await test('品牌入口始终可返回首页，保留当前教师与编辑内容，版本号不随页面标题消失', async () => {
+      const f = await fixture(), { page } = f;
+      await page.goto(origin); assert.equal(await page.locator('#app-version').textContent(), 'v0');
+      await page.getByRole('link', { name: '返回首页', exact: true }).click(); await page.locator('#dashboard').waitFor({ state: 'visible' });
+      await page.locator('#user-chip-btn').click(); await page.getByRole('button', { name: teacher.name, exact: true }).click();
+      await page.locator('#new-record').click(); await page.locator('#studentName').fill('首页导航测试');
+      await page.locator('#content').fill('返回首页前保存此内容');
+      await page.getByRole('link', { name: '返回首页', exact: true }).click(); await page.locator('#dashboard').waitFor({ state: 'visible' });
+      assert.equal(f.db.size, 1); assert.equal(f.db.values().next().value.record.content, '返回首页前保存此内容');
+      assert.ok((await page.locator('#user-chip-btn').textContent()).includes(teacher.name));
+      for (const entry of ['batch-new', 'ocr-new']) {
+        await page.locator('#' + entry).click(); await page.getByRole('link', { name: '返回首页', exact: true }).click();
+        await page.locator('#dashboard').waitFor({ state: 'visible' }); assert.equal(await page.locator('#app-version').textContent(), 'v0');
+      }
+      await page.screenshot({ path: '/tmp/sfk-home-v0-desktop.png', fullPage: true });
+      await page.setViewportSize({ width: 375, height: 812 });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      assert.equal(await page.locator('#app-version').isVisible(), true);
+      await page.screenshot({ path: '/tmp/sfk-home-v0-mobile.png', fullPage: true });
+      const shared = f.row('home-student', record('学生首页测试')); shared.share_token = token; f.db.set(shared.id, shared);
+      await page.goto(origin + '/#request=' + token); await page.reload(); await page.locator('main.layout').waitFor({ state: 'visible' });
+      await page.getByRole('link', { name: '返回首页', exact: true }).click(); await page.locator('#user-select').waitFor({ state: 'visible' });
+      assert.equal(new URL(page.url()).hash, ''); assert.equal(await page.locator('#app-version').textContent(), 'v0');
+      await f.close();
+    });
+
     await test('自动保存期间切换老师：等待保存并保留后来输入，手动保存不并发', async () => {
       const f = await fixture(), { page, api } = f; await f.home();
       await page.locator('#user-chip-btn').click(); await page.getByRole('button', { name: teacher.name, exact: true }).click();

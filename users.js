@@ -69,6 +69,18 @@ window.SFKUser=(()=>{
   $('us-add-btn').onclick=async()=>{const inp=$('us-name'),name=inp.value.trim();if(!name){$('us-status').textContent='请输入教师姓名';return;}try{const t=await addTeacher(name);inp.value='';_current=t;_active=true;writeLast(t);updateChip();view.hidden=true;if(window.SFKShowDashboard)window.SFKShowDashboard();}catch(e){$('us-status').textContent=e.message;}};
   $('us-guest').onclick=selectGuest;
 
+  $('home-link').onclick=e=>{
+    // Force a document navigation: removing just the hash would leave the student-only UI mounted.
+    if(location.hash.startsWith('#request=')){
+      e.preventDefault();const home=new URL('./',location.href);
+      if(home.pathname===location.pathname&&home.search===location.search)home.search='?home=1';
+      location.assign(home.href);return;
+    }
+    e.preventDefault();
+    if(!_active){_current=null;_active=true;updateChip();}
+    if(window.SFKShowDashboard)window.SFKShowDashboard();
+  };
+
   if(!location.hash.startsWith('#request='))showSelect();
 
   return {current:()=>_current,isActive:()=>_active,name:()=>_current?_current.name:'访客',view,showSelect};
