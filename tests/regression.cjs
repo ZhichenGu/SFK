@@ -30,7 +30,7 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
     async function fixture() {
       const context = await browser.newContext();
       const db = new Map(), saves = [], publishes = [], errors = [], external = [];
-      const api = { failNames: new Set(), dropNames: new Set(), failPublish: false, saveGate: null, detailGate: null, winner: '', failShared: 0, submits: 0 };
+      const api = { failNames: new Set(), dropNames: new Set(), failPublish: false, saveGate: null, detailGate: null, winner: '', failShared: 0, submits: 0, ocrCalls: 0, ocrWords: null };
       const row = (id, rec, revision = 1) => ({ id, record: clone(rec), revision, signed_at: null, share_token: null, share_expires_at: null });
       const meta = r => ({ id: r.id, revision: r.revision, student_name: r.record.studentName, teacher_name: r.record.teacherName, lesson_date: r.record.lessonDate, check_in: r.record.checkIn, course_name: r.record.courseName, signed_at: r.signed_at });
       await context.route('**/*', async route => {
@@ -44,9 +44,9 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
           if (id) { if (api.detailGate) { const gate = api.detailGate; api.detailGate = null; gate.started.resolve(); await gate.release.promise; } return reply(db.has(id) ? [db.get(id)] : []); }
           return reply([...db.values()].map(meta));
         }
-        if (url.pathname === '/functions/v1/ocr-schedule') return reply({ words: [
+        if (url.pathname === '/functions/v1/ocr-schedule') { api.ocrCalls++; return reply({ words: api.ocrWords || [
           { text: '测试学生', x: 0, y: 0, h: 20 }, { text: '2026-10-18', x: 100, y: 0, h: 20 }, { text: '10:00-11:00', x: 250, y: 0, h: 20 }
-        ] });
+        ] }); }
         if (url.pathname.startsWith('/rest/v1/rpc/')) {
           const body = route.request().postDataJSON(), name = url.pathname.split('/').pop();
           if (name === 'save_lesson') {
@@ -177,6 +177,37 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
       api.failNames.clear(); api.failPublish = true; await page.locator('#ocr-retry').click(); await page.waitForFunction(() => !SFKOCR.isBusy());
       const saves = f.saves.length; api.failPublish = false; await page.locator('#ocr-retry').click(); await page.waitForFunction(() => !SFKOCR.isBusy());
       assert.equal(f.saves.length, saves); assert.equal(f.db.size, 1); assert.equal(await page.locator('#ocr-copyall').isVisible(), true);
+      await f.close();
+    });
+
+    await test('示例卡片仅一节课，原课程可见，重复识别复用结果且生成类型有效', async () => {
+      const f = await fixture(), { page, api } = f;
+      const word = (text, x, y, w = 80) => ({ text, x, y, w, h: 22 });
+      api.ocrWords = [word('基础课+项目', 168, 40, 155), word('1V1授课', 362, 33, 90), word('13:30', 42, 60, 65),
+        word('学生名称:', 168, 85, 108), word('Michael', 288, 85, 84), word('Zhicheng', 384, 85, 96), word('Fan', 492, 85, 36),
+        word('14:30', 42, 106, 65), word('教室名称:', 168, 128, 108)];
+      await f.home(); await page.locator('#ocr-new').click();
+      await page.locator('#ocr-file').setInputFiles({ name: 'card.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64') });
+      await page.locator('#ocr-recognize').click(); await page.locator('#ocr-next').waitFor();
+      assert.equal(await page.locator('#ocr-rows > .ocr-row').count(), 1);
+      const cells = page.locator('#ocr-rows > .ocr-row .cell');
+      assert.equal(await cells.nth(1).locator('input').inputValue(), 'Michael Zhicheng Fan');
+      assert.equal(await cells.nth(2).locator('select').inputValue(), '项目课');
+      assert.ok((await cells.nth(2).textContent()).includes('基础课+项目'));
+      assert.equal(await cells.nth(3).locator('input').inputValue(), '');
+      assert.equal(await cells.nth(4).locator('input').inputValue(), '13:30');
+      assert.equal(await cells.nth(5).locator('input').inputValue(), '14:30');
+      assert.equal(await cells.nth(6).locator('input').inputValue(), '');
+      await page.screenshot({ path: '/tmp/sfk-ocr-card-desktop.png', fullPage: true });
+      await page.setViewportSize({ width: 375, height: 812 });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      await page.screenshot({ path: '/tmp/sfk-ocr-card-mobile.png', fullPage: true });
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.locator('#ocr-upload-again').click(); await page.locator('#ocr-recognize').click(); await page.locator('#ocr-next').waitFor();
+      assert.equal(api.ocrCalls, 1); assert.ok((await page.locator('#ocr-status').textContent()).includes('未再次请求'));
+      await page.locator('#ocr-next').click(); await page.locator('#ocr-generate').click(); await page.waitForFunction(() => !SFKOCR.isBusy());
+      assert.equal(f.saves.length, 1); assert.equal(f.saves[0].p_record.studentName, 'Michael Zhicheng Fan');
+      assert.equal(f.saves[0].p_record.courseName, '项目课'); assert.equal(f.saves[0].p_record.lessonDate, '');
       await f.close();
     });
 
