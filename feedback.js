@@ -29,7 +29,7 @@
   const contents=[...new Set(lessons.map(r=>r.content).filter(Boolean))];
   lines.push('🔸课程内容：'+contents.join('；'));
   lines.push('🔸最新作业：'+text(o.homework));
-  lines.push('🔸学生表现：'+text(o.observation));
+  lines.push('🔸学生表现：'+(text(o.observation)||(contents.length?'可以按自己的节奏逐步熟悉课程内容，在尝试中慢慢积累经验。':'')));
   lines.push('🔸学习建议：'+(text(o.advice)?'建议'+(['他','她'].includes(o.pronoun)?o.pronoun:'学生')+'：'+text(o.advice):''));
   return lines.join('\n');
  }
@@ -52,7 +52,7 @@
  <label><span>学生称谓</span><select id="feedback-pronoun"><option value="学生">学生（不指定）</option><option value="她">她</option><option value="他">他</option></select><small>用于建议措辞；不会根据姓名推测性别。</small></label>
  <label><span>当前项目（选填）</span><input id="feedback-project" maxlength="200" placeholder="例如：项目一 · 对视"></label>
  <label class="wide"><span>本次作业（可调整）</span><textarea id="feedback-homework" placeholder="填写本次需要反馈的作业"></textarea><small id="feedback-homework-hint"></small></label>
- <label class="wide"><span>课堂表现补充（选填）</span><textarea id="feedback-observation" placeholder="填写实际观察，例如：能根据测试结果调整结构。"></textarea><small>仅填写真实表现，不会自动补写评价。</small></label>
+ <label class="wide"><span>课堂表现补充（选填）</span><textarea id="feedback-observation" placeholder="填写实际观察，例如：能根据测试结果调整结构。"></textarea><small>可填写实际观察；留空时生成温和鼓励，不推测态度或成绩。</small></label>
  <label class="wide"><span>学习建议（选填）</span><textarea id="feedback-advice" placeholder="例如：先梳理主要问题，再逐项测试。"></textarea><small>与作业分开，可补充一句简短鼓励；留空时由 AI 根据课程提出建议。</small></label>
  <div class="actions wide"><button type="button" id="feedback-template">使用本地模板（免费）</button><button type="submit" id="feedback-generate" class="primary">AI 生成反馈</button></div></form>
  <div id="feedback-result" hidden><label for="feedback-text">反馈正文（可直接修改）</label><textarea id="feedback-text"></textarea>
@@ -79,7 +79,7 @@
    const response=await SFKCloud.generateFeedback({studentName:current.studentName,lessons,options},controller.signal);
    if(pending!==controller||!dialog.open)return;
    const usage=response.usage,counts=Number.isFinite(usage?.inputTokens)&&Number.isFinite(usage?.outputTokens)?' 输入 '+usage.inputTokens+' / 输出 '+usage.outputTokens+' token。':'';
-   showResult(response.text,'DeepSeek生成草稿，请核对事实后复制。'+counts);
+   showResult(response.text,'DeepSeek生成草稿，请核对事实后复制。'+(response.adviceFallback||response.observationFallback?' 部分内容使用通用鼓励或建议补充，请按实际情况调整。':'')+counts);
   }catch(error){if(pending===controller&&dialog.open)status.textContent='生成失败：'+error.message+' 填写内容已保留，可稍后重试或使用本地模板。';}
   finally{if(pending===controller){pending=null;controls(false);el('generate').textContent='AI 生成反馈';}}
  };

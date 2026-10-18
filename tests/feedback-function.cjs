@@ -12,12 +12,17 @@ function fixture({key='isolated-key',response,throws=false}={}){
 }
 const input=()=>({studentName:'学生A',lessons:[{studentName:'学生A',courseName:'项目课',content:'开题调研',signatures:'must-not-forward',lessonDate:'2026-10-18'}],options:{progress:'0',pronoun:'她',homework:'画草图'}});
 (async()=>{
- let f=fixture(),res=await f.call(input());assert.equal(res.status,200);const output=(await res.json()).text;assert.ok(output.includes('🔸课程内容：测试反馈'));for(const title of ['学生姓名','当前项目','当前导师','最新进度百分比','课程内容','最新作业','学生表现','学习建议'])assert.equal(output.split('🔸'+title+'：').length-1,1);
+ let f=fixture(),res=await f.call(input());assert.equal(res.status,200);const output=(await res.json()).text;assert.ok(output.includes('🔸课程内容：测试反馈'));assert.ok(output.includes('🔸学习建议：可以先选择'));assert.ok(output.includes('🔸学生表现：可以按自己的节奏'));for(const title of ['学生姓名','当前项目','当前导师','最新进度百分比','课程内容','最新作业','学生表现','学习建议'])assert.equal(output.split('🔸'+title+'：').length-1,1);
  const request=f.requests[0];assert.equal(request.url,'https://api.deepseek.com/chat/completions');
  assert.equal(request.body.thinking.type,'disabled');assert.equal(request.body.max_tokens,1000);
  const data=JSON.parse(request.body.messages[1].content);assert.equal(data.options.progress,'0');assert.ok(!JSON.stringify(data).includes('must-not-forward'));assert.ok(!JSON.stringify(data).includes('2026-10-18'));
  assert.ok(request.body.messages[0].content.includes('不得覆盖'));
  console.log('PASS provider contract, prompt rules, field projection, output');
+ f=fixture();let custom=input();custom.options.advice='先整理电压参数';res=await f.call(custom);assert.ok((await res.json()).text.includes('🔸学习建议：先整理电压参数'));assert.equal(f.requests.length,1);
+ f=fixture({response:new Response(JSON.stringify({choices:[{finish_reason:'stop',message:{content:'🔸学习建议：先核对电机参数。\n🔸学生表现：'}}]}))});res=await f.call(input());const kept=await res.json();assert.ok(kept.text.includes('先核对电机参数。'));assert.equal(kept.adviceFallback,false);
+ f=fixture();custom=input();custom.lessons[0].content='';res=await f.call(custom);const empty=await res.json();assert.equal(empty.adviceFallback,false);assert.ok(empty.text.endsWith('🔸学习建议：'));
+ f=fixture();custom=input();custom.options.observation='课堂能按测试结果修改接线';res=await f.call(custom);const observed=await res.json();assert.ok(observed.text.includes('🔸学生表现：课堂能按测试结果修改接线'));assert.equal(f.requests.length,1);
+ console.log('PASS empty advice fallback, teacher advice, preserved model advice, no invented observations');
  for(const change of [x=>{x.lessons[0].studentName='另一学生';},x=>{x.options.progress='101';},x=>{x.options.pronoun='guess';},x=>{x.lessons=[];},x=>{x.lessons[0].content='长'.repeat(12001);}]){
   f=fixture();const bad=input();change(bad);res=await f.call(bad);assert.equal(res.status,400);assert.equal(f.requests.length,0);
  }
