@@ -8,15 +8,17 @@
 
 1. 打开 [Supabase 项目](https://supabase.com/dashboard/project/gsbktszybeqhpyirvcaw)。进入 **SQL Editor → New query**，复制同目录 `supabase.sql` 的完整内容，执行一次。脚本创建表、权限与签名接口；重复执行不会删除记录。
 2. **不需要创建老师账号或配置 Authentication。** 如果此前执行过带登录要求的旧脚本，重新执行当前 `supabase.sql`，它会将读取与管理接口改为公开共享权限，保留已有记录。
-3. 上传或提交本目录所有网站文件到 GitHub，而不仅是 `index.html`。GitHub 仓库 **Settings → Pages** 选择 `main` 分支根目录。若部署地址不同，修改 `config.js` 的 `siteUrl`。当前预设为 `https://zhichengu.github.io/SFKTeachingWorkspace/`。
+3. 上传或提交本目录所有网站文件到 GitHub，而不仅是 `index.html`。GitHub 仓库 **Settings → Pages** 选择 `main` 分支根目录。若部署地址不同，修改 `config.js` 的 `siteUrl`。当前预设为 `https://zhichengu.github.io/SFK/`。
 4. 直接打开网站，新建一份测试签单，生成链接；在另一浏览器或手机打开链接签名。管理页面可见时约 15 秒内更新，也可点击“刷新签名状态”。
 
 **基础签单不需要 Storage bucket 或 Edge Function，也不需要在前端放数据库密码。** OCR 识别需要单独部署下文的 Edge Function。建表脚本未执行前，不能将学生签名自动同步视为已启用。
 
 ## 使用
 
+仓库已更名为 `ZhichenGu/SFK`，网站地址为 `https://zhichengu.github.io/SFK/`。单份、批量、OCR签名链接均使用 `config.js` 的 `siteUrl`。以后更换Pages路径或域名时同步修改该值并发布前端；无需修改数据库或反馈函数。此前已发送的旧链接可只替换 `/SFKTeachingWorkspace/` 为 `/SFK/`，保留 `#request=` 后的签名令牌不变；仍受原30天有效期及修改记录后的失效规则约束。
+
 - 点击左上角品牌区可返回首页；已选择教师时保留当前教师，编辑中的签单先完成保存。学生签名链接中的品牌入口返回网站起始页，未提交签名仍由离页提示保护。
-- 左上角当前版本为 `v0.8`（保存恢复、OCR更新与反馈用量保护）。版本号是发布标记，不会因刷新或数据库内容变化自行递增。发布前同步更新 `index.html` 的 `app-version` 文字、说明及所有外部脚本的 `?v=` 参数，避免新页面复用旧脚本；切换页面不会改变版本。线上显示取决于实际发布的文件，只有本地修改不会更新线上版本。
+- 左上角当前版本为 `v0.9`（适配仓库更名后的签名链接）。版本号是发布标记，不会因刷新或数据库内容变化自行递增。发布前同步更新 `index.html` 的 `app-version` 文字、说明及所有外部脚本的 `?v=` 参数，避免新页面复用旧脚本；切换页面不会改变版本。线上显示取决于实际发布的文件，只有本地修改不会更新线上版本。
 - 右上角教师姓名左侧的「签单教程」按钮打开独立教程页，包含「新建签单」「批量新建」三步说明和对应操作入口；首页不再展示教程卡片。筛选栏显示日期起止标签，手机上教程页自动改为单列；页头预览入口只在签单编辑或学生签名页面显示。
 
 ### 教师身份选择
