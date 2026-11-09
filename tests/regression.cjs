@@ -93,6 +93,27 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
     }
     async function test(name, run) { await run(); console.log('PASS', name); }
 
+    await test('长姓名签名完整缩放，图片边缘不裁切且可导出',async()=>{
+      const f=await fixture();await f.home();const result=await f.page.evaluate(async()=>{
+        const names=['W'.repeat(24),'测试'.repeat(12),'Alexandra Montgomery'];const results=[];
+        for(const name of names){const sig=await SFKCloud.compactSignature({...blankSignature(),text:name});const img=new Image();img.src=sig.image;await img.decode();const c=document.createElement('canvas');c.width=img.width;c.height=img.height;const x=c.getContext('2d');x.drawImage(img,0,0);let edgeInk=0,totalInk=0;const pixels=x.getImageData(0,0,c.width,c.height).data;for(let y=0;y<c.height;y++)for(let xx=0;xx<c.width;xx++){const i=(y*c.width+xx)*4;if(pixels[i]<180&&pixels[i+3]>0){totalInk++;if(xx<3||xx>=c.width-3||y<3||y>=c.height-3)edgeInk++;}}results.push({edgeInk,totalInk,bytes:atob(sig.image.split(',')[1]).length,text:sig.text});}
+        const rec=initialRecord();rec.studentName='长姓名';rec.signatures.student=await SFKCloud.compactSignature({...blankSignature(),text:names[0]});const png=await SFKExports.png(rec);return {results,size:png.size};
+      });
+      for(const r of result.results){assert.equal(r.edgeInk,0);assert.ok(r.totalInk>100);assert.ok(r.bytes<=16384);}assert.ok(result.size>0);await f.close();
+    });
+    await test('画笔完成和清除触发自动保存，书写中不保存且载入不会循环保存',async()=>{
+      const f=await fixture(),{page}=f;await f.home();await page.locator('#new-record').click();await page.locator('#studentName').fill('画笔自动保存');await page.locator('#save-record').click();await page.waitForFunction(()=>document.getElementById('save-status').textContent.includes('已保存'));await page.waitForTimeout(2300);
+      const before=f.saves.length;const field=page.locator('#student-name').locator('xpath=ancestor::fieldset');await field.locator('[data-mode="draw"]').click();const box=await field.locator('canvas').boundingBox();await page.mouse.move(box.x+20,box.y+20);await page.mouse.down();await page.mouse.move(box.x+110,box.y+65);await page.waitForTimeout(2300);assert.equal(f.saves.length,before);await page.mouse.up();
+      await page.waitForFunction(()=>document.getElementById('save-status').textContent.includes('已保存')&&!SFKHasUnsavedChanges());assert.equal(f.saves.length,before+1);const saved=f.db.values().next().value;assert.equal(saved.record.signatures.student.mode,'image');assert.ok(saved.record.signatures.student.image);await page.waitForTimeout(2300);assert.equal(f.saves.length,before+1);
+      await field.locator('[data-clear]').click();await page.waitForFunction(()=>document.getElementById('save-status').textContent.includes('已保存')&&!SFKHasUnsavedChanges());assert.equal(f.saves.length,before+2);assert.equal(f.db.values().next().value.record.signatures.student.image,null);await f.close();
+    });
+    await test('图片处理超过保存定时器后，完成处理仍会自动保存',async()=>{
+      const f=await fixture(),{page}=f;await f.home();await page.locator('#new-record').click();await page.locator('#studentName').fill('慢图片');await page.locator('#save-record').click();await page.waitForFunction(()=>document.getElementById('save-status').textContent.includes('已保存'));await page.waitForTimeout(2300);const before=f.saves.length;
+      const image=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=100;c.height=50;const x=c.getContext('2d');x.fillRect(15,15,60,10);const original=Image.prototype.decode;Image.prototype.decode=async function(){if(this.src.startsWith('blob:'))await new Promise(resolve=>window.releaseSignatureDecode=resolve);return original.call(this);};return c.toDataURL().split(',')[1];});
+      await page.locator('#student-name').locator('xpath=ancestor::fieldset').locator('[data-mode="image"]').click();await page.locator('#student-file').setInputFiles({name:'test.png',mimeType:'image/png',buffer:Buffer.from(image,'base64')});await page.waitForFunction(()=>!!window.releaseSignatureDecode);await page.waitForTimeout(2300);assert.equal(f.saves.length,before);await page.evaluate(()=>releaseSignatureDecode());
+      await page.waitForFunction(()=>document.getElementById('save-status').textContent.includes('已保存')&&!SFKHasUnsavedChanges());assert.equal(f.saves.length,before+1);assert.ok(f.db.values().next().value.record.signatures.student.image);await f.close();
+    });
+
     await test('仓库更名后单份、批量、OCR均保留新网站子路径',async()=>{
       const f=await fixture(),{page}=f;await f.home();
       const expected='https://example.test/SFK/#request='+token;
@@ -275,9 +296,9 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
 
     await test('品牌入口始终可返回首页，保留当前教师与编辑内容，版本号不随页面标题消失', async () => {
       const f = await fixture(), { page } = f;
-      await page.goto(origin); assert.equal(await page.locator('#app-version').textContent(), 'v0.9');
+      await page.goto(origin); assert.equal(await page.locator('#app-version').textContent(), 'v0.11');
       const scripts = await page.locator('script[src]').evaluateAll(nodes => nodes.map(e => new URL(e.src).searchParams.get('v')));
-      assert.ok(scripts.length > 0 && scripts.every(v => 'v' + v === 'v0.9'));
+      assert.ok(scripts.length > 0 && scripts.every(v => 'v' + v === 'v0.11'));
       await page.getByRole('link', { name: '返回首页', exact: true }).click(); await page.locator('#dashboard').waitFor({ state: 'visible' });
       await page.locator('#user-chip-btn').click(); await page.getByRole('button', { name: teacher.name, exact: true }).click();
       await page.locator('#new-record').click(); await page.locator('#studentName').fill('首页导航测试');
@@ -287,17 +308,17 @@ const record = name => ({ schemaVersion: 1, courseName: '项目课', lessonDate:
       assert.ok((await page.locator('#user-chip-btn').textContent()).includes(teacher.name));
       for (const entry of ['batch-new', 'ocr-new']) {
         await page.locator('#' + entry).click(); await page.getByRole('link', { name: '返回首页', exact: true }).click();
-        await page.locator('#dashboard').waitFor({ state: 'visible' }); assert.equal(await page.locator('#app-version').textContent(), 'v0.9');
+        await page.locator('#dashboard').waitFor({ state: 'visible' }); assert.equal(await page.locator('#app-version').textContent(), 'v0.11');
       }
-      await page.screenshot({ path: '/tmp/sfk-home-v0.9-desktop.png', fullPage: true });
+      await page.screenshot({ path: '/tmp/sfk-home-v0.11-desktop.png', fullPage: true });
       await page.setViewportSize({ width: 375, height: 812 });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       assert.equal(await page.locator('#app-version').isVisible(), true);
-      await page.screenshot({ path: '/tmp/sfk-home-v0.9-mobile.png', fullPage: true });
+      await page.screenshot({ path: '/tmp/sfk-home-v0.11-mobile.png', fullPage: true });
       const shared = f.row('home-student', record('学生首页测试')); shared.share_token = token; f.db.set(shared.id, shared);
       await page.goto(origin + '/#request=' + token); await page.reload(); await page.locator('main.layout').waitFor({ state: 'visible' });
       await page.getByRole('link', { name: '返回首页', exact: true }).click(); await page.locator('#user-select').waitFor({ state: 'visible' });
-      assert.equal(new URL(page.url()).hash, ''); assert.equal(await page.locator('#app-version').textContent(), 'v0.9');
+      assert.equal(new URL(page.url()).hash, ''); assert.equal(await page.locator('#app-version').textContent(), 'v0.11');
       await f.close();
     });
 
